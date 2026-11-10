@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# Node modules (not touching frontend, but root-level)
+node_modules
+
+# OS
+.DS_Storefrontend/.env.local
+.env.local
+*.tsbuildinfo
+
+backend/app/data/
+backend/data/
+backend/audit/
+backend/.cache/
+backend/models/
+.env
+.env.local
+*.tsbuildinfo
+dist/

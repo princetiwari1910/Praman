@@ -1,0 +1,151 @@
+/* Tailwind v4 CSS import */
+@import "tailwindcss";
+
+/* Self-hosted fonts via @fontsource */
+@import "@fontsource-variable/syne";
+@import "@fontsource/dm-mono/400.css";
+@import "@fontsource/dm-mono/500.css";
+
+/* Brand design tokens */
+@theme {
+  --color-ink: #17144F;
+  --color-ink-80: rgba(23, 20, 79, 0.8);
+  --color-ink-10: rgba(23, 20, 79, 0.1);
+  --color-paper: #EDF0F7;
+  --color-paper-dark: #D8DCE9;
+  --color-marigold: #F2A93B;
+  --color-marigold-light: rgba(242, 169, 59, 0.15);
+  --color-coral: #E2554F;
+  --color-coral-light: rgba(226, 85, 79, 0.12);
+  --color-teal: #1D9C86;
+  --color-teal-light: rgba(29, 156, 134, 0.12);
+  --color-slate: #5B6178;
+  --color-slate-light: rgba(91, 97, 120, 0.12);
+
+  --font-display: "Syne Variable", "Syne", sans-serif;
+  --font-mono: "DM Mono", "Fira Code", monospace;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+}
+
+/* Base reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: auto; /* Lenis handles this */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background-color: #EDF0F7;
+  color: #17144F;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* Focus styles — visible, not just outline:none */
+:focus-visible {
+  outline: 2px solid #F2A93B;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Scroll progress bar */
+#scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: #F2A93B;
+  transform-origin: left;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* Marquee animation */
+@keyframes marquee-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes marquee-right {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
+}
+
+.marquee-track-left {
+  animation: marquee-left 28s linear infinite;
+}
+
+.marquee-track-right {
+  animation: marquee-right 32s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track-left,
+  .marquee-track-right,
+  .stamp-animation {
+    animation: none !important;
+  }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Code block */
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* Proof seal keyframe */
+@keyframes stamp-in {
+  0%   { transform: rotate(-15deg) scale(0.4); opacity: 0; }
+  60%  { transform: rotate(2deg) scale(1.08); opacity: 1; }
+  80%  { transform: rotate(-1deg) scale(0.97); }
+  100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+
+.stamp-animation {
+  animation: stamp-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Chip stamp animation */
+@keyframes chip-stamp {
+  0%   { transform: scale(0.5) rotate(-4deg); opacity: 0; }
+  70%  { transform: scale(1.05) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+/* Number counter */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Selection */
+::selection {
+  background: rgba(242, 169, 59, 0.3);
+  color: #17144F;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #EDF0F7;
+}
+::-webkit-scrollbar-thumb {
+  background: #5B6178;
+  border-radius: 3px;
+}

@@ -1,0 +1,4 @@
+backend/audit/
+backend/data/feedback.jsonl
+backend/.cache/
+backend/models/
