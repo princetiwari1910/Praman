@@ -43,20 +43,59 @@ export interface ReportCreateResponse {
   sha256?: string;
 }
 
-export interface BatchRowResult {
+export interface BatchValidRow {
   address: string;
-  chain: string;
-  score: number | null;
+  score: number;
   band: string;
   sanctions_hit: boolean;
-  top_reason: string;
-  data_mode: 'live' | 'fixture';
-  error?: string;
+  top_reason_code: string;
 }
+
+export interface BatchErrorRow {
+  address: string;
+  error: {
+    error: string;
+    message: string;
+  };
+}
+
+export type BatchFlatRow = BatchValidRow | BatchErrorRow;
 
 export interface AuditVerifyResponse {
   valid: boolean;
-  entry_count: number;
+  entries: number;
+}
+
+export interface CounterfactualItem {
+  without_code: string;
+  score_without: number;
+  band_without: string;
+}
+
+export interface ExplainResponse {
+  score: number;
+  band: string;
+  band_gap: {
+    next_band: string | null;
+    points_needed: number;
+  };
+  counterfactuals: CounterfactualItem[];
+}
+
+export interface VerifyReportResponse {
+  valid: boolean;
+  computed_sha256: string;
+  known_report: boolean;
+}
+
+export type ApprovalDecision = 'approved' | 'rejected' | 'needs_review' | 'pending';
+
+export interface ApprovalResponse {
+  decision: ApprovalDecision;
+  analyst_name?: string;
+  note?: string;
+  decided_at?: string;
+  timestamp?: string;
 }
 
 export interface ApiErrorResponse {

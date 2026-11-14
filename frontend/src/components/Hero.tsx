@@ -71,7 +71,7 @@ function ProofSeal({ visible, reduced }: { visible: boolean; reduced: boolean })
 
 // ── Risk Gauge ────────────────────────────────────────────────────────────────
 function RiskGauge({ score, visible, reduced }: { score: number; visible: boolean; reduced: boolean }) {
-  const [displayed, setDisplayed] = useState(0);
+  const [displayed, setDisplayed] = useState(() => (reduced ? score : 0));
   const rafRef = useRef<number>(0);
 
   useEffect(() => {
@@ -87,9 +87,13 @@ function RiskGauge({ score, visible, reduced }: { score: number; visible: boolea
     const tick = (now: number) => {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
+      if (progress >= 1) {
+        setDisplayed(target);
+        return;
+      }
       const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplayed(Math.round(eased * target));
-      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
+      setDisplayed(Math.trunc(eased * target));
+      rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -109,7 +113,7 @@ function RiskGauge({ score, visible, reduced }: { score: number; visible: boolea
   const needleY = cy + radius * Math.sin(angle);
 
   return (
-    <div className="flex flex-col items-center gap-1" role="img" aria-label={`Risk score: ${displayed} out of 100`}>
+    <div className="flex flex-col items-center gap-1" role="img" aria-label={`Illustration: sample risk score ${score} out of 100`}>
       <svg width="180" height="100" viewBox="0 0 180 100" aria-hidden="true">
         {/* Track */}
         <path
@@ -153,8 +157,19 @@ function RiskGauge({ score, visible, reduced }: { score: number; visible: boolea
       >
         {displayed}
       </div>
+      <div
+        className="text-xs font-mono tracking-widest uppercase px-2 py-0.5 rounded"
+        style={{
+          color: '#F2A93B',
+          background: 'rgba(242,169,59,0.12)',
+          border: '1px solid rgba(242,169,59,0.35)',
+          fontFamily: 'DM Mono, monospace',
+        }}
+      >
+        Illustration
+      </div>
       <div className="text-xs font-mono tracking-widest uppercase" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
-        Illustration · sample risk score
+        sample risk score
       </div>
     </div>
   );
@@ -165,12 +180,14 @@ export function Hero() {
   const navigate = useNavigate();
   const reduced = useReducedMotion();
 
-  // Animation state
-  const [nodesVisible, setNodesVisible] = useState(false);
-  const [edgesVisible, setEdgesVisible] = useState(false);
-  const [gaugeVisible, setGaugeVisible] = useState(false);
-  const [chipsVisible, setChipsVisible] = useState<boolean[]>([false, false, false, false]);
-  const [sealVisible, setSealVisible] = useState(false);
+  // Animation state — show final state immediately under prefers-reduced-motion
+  const [nodesVisible, setNodesVisible] = useState(() => reduced);
+  const [edgesVisible, setEdgesVisible] = useState(() => reduced);
+  const [gaugeVisible, setGaugeVisible] = useState(() => reduced);
+  const [chipsVisible, setChipsVisible] = useState<boolean[]>(() =>
+    reduced ? [true, true, true, true] : [false, false, false, false]
+  );
+  const [sealVisible, setSealVisible] = useState(() => reduced);
 
   // Magnetic CTA
   const ctaRef = useRef<HTMLButtonElement>(null);

@@ -27,10 +27,22 @@ node_modules
 
 backend/app/data/
 backend/data/
+backend/data/sanctions.json
 backend/audit/
+backend/approvals.jsonl
 backend/.cache/
 backend/models/
 .env
 .env.local
 *.tsbuildinfo
 dist/
+contracts/artifacts/
+contracts/cache/
+contracts/.cache/
+.DS_Store
+**/.DS_Store
+node_modules/
+
+backend/app/audit/
+backend/data/*.jsonl
+backend/.cache/

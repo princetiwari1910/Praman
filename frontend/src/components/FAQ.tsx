@@ -25,7 +25,7 @@ const FAQS = [
   },
   {
     q: 'What is a "design partner"?',
-    a: 'A design partner gets early API access, helps shape the product roadmap, and receives preferred pricing when Praman reaches general availability. In return, we ask for regular feedback sessions — typically 30 minutes every two weeks.',
+    a: 'A design partner gets early API access, helps shape the product roadmap, and receives preferred pricing when Praman reaches general availability. In return, we ask for regular feedback sessions.',
   },
   {
     q: 'Is Praman legal advice?',

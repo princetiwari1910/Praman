@@ -17,7 +17,7 @@
   - A **fund-flow graph** (`nodes`, `edges`) and a **downloadable PDF case summary** with SHA-256 hash.
 
 ## Slide 3: Live Demo
-- Walkthrough at `http://127.0.0.1:5173/demo` (demo runs on sample fixture data; live mode uses a free Etherscan key):
+- Walkthrough at `http://127.0.0.1:5173/demo` (demo runs on sample data; live mode uses a free Etherscan key):
   - Screen `0x2222222222222222222222222222222222222222` → score `87` (`severe`), `sanctions_hit: true`, `SANCTIONS_MATCH (+60) + MIXER_EXPOSURE (+27)`.
   - Screen `0x1111111111111111111111111111111111111111` → score `12` (`low`), `sanctions_hit: false`, `NEW_WALLET (+12)`.
   - Generate PDF report (`POST /v1/reports`) and inspect the API-returned SHA-256 digest + Hardhat local testnet attestation commands.

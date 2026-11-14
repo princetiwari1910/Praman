@@ -1,40 +1,48 @@
-# Hardhat Attestation Registry Contracts
+# AttestationRegistry Contracts
 
-## Testnet Demo Note
-This is a testnet demonstration project only. It is not a legal proof, audit result, or production system.
+**LOCAL DEMO - not legal proof.** This is a local demonstration contract only. It is not legal proof, an audit certification, or a production deployment.
 
 ## Commands
 
-### Start local Hardhat node
-```bash
-npx hardhat node
-```
+Run all commands from `contracts/`:
 
-### Deploy contracts to local node
+### Compile
+
 ```bash
-npx hardhat run scripts/deploy.js --network localhost
+npx hardhat compile
 ```
 
 ### Run tests
+
 ```bash
 npx hardhat test
 ```
 
-### Attest a report hash with a band
+### Run the in-process local attestation demo
+
 ```bash
-npx hardhat run scripts/attest.js --network localhost <hex_report_SHA_256> <band>
+REPORT_HASH=<64-hex report hash> BAND=<low|medium|high|severe> npx hardhat run scripts/demo-attest.js --network hardhat
 ```
-- `band` must be one of: `1` (low), `2` (medium), `3` (high), `4` (severe)
 
-## Contract Details
+`scripts/demo-attest.js` deploys `AttestationRegistry` to the in-process Hardhat network, attests `REPORT_HASH` (64 hex characters with or without `0x`) with the specified band, reads back the stored attestation, and refuses to run on any network other than `hardhat`.
 
-### AttestationRegistry.sol
-- `attest(bytes32 reportHash, uint8 band)`: Stores attester, timestamp, and band once per report hash. Reverts if already attested for that hash.
-- `get(bytes32 reportHash)`: Returns the attester, timestamp, and band for a given report hash.
-- `Attested(bytes32 indexed reportHash, address indexed attester, uint8 band, uint256 timestamp)`: Emitted on successful attestation.
+### Optional: deploy & attest against a persistent local node
 
-### Usage Flow
-1. Start local node: `npx hardhat node`
-2. Deploy contracts: `npx hardhat run scripts/deploy.js --network localhost`
-3. Attest a report: `npx hardhat run scripts/attest.js --network localhost <hex_SHA_256> <band>`
-4. Check attestation: `npx hardhat test`)
+Terminal 1:
+
+```bash
+npx hardhat node
+```
+
+Terminal 2:
+
+```bash
+npx hardhat run scripts/deploy.js --network localhost
+REPORT_HASH=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa BAND=3 npx hardhat run scripts/attest.js --network localhost
+```
+
+## Contract API (`AttestationRegistry.sol`)
+
+- `attest(bytes32 reportHash, uint8 band)`: Stores `attester`, `timestamp`, and `band` (0-3) once per `reportHash`; reverts on duplicate hash, empty hash, or invalid band.
+- `get(bytes32 reportHash)`: Returns `(address attester, uint256 timestamp, uint8 band)`.
+- `Attested(bytes32 indexed reportHash, address indexed attester, uint8 band, uint256 timestamp)`: Emitted on attestation.

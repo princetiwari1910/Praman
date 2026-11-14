@@ -74,8 +74,8 @@ export function DemoGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   }, [nodes, edges]);
 
   return (
-    <div role="img" aria-label="Fund flow graph showing wallet connections">
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" className="w-full h-auto">
+    <div role="img" aria-label="Fund flow graph showing wallet connections" className="w-full max-w-full overflow-hidden">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" className="w-full max-w-[340px] mx-auto h-auto block">
         <defs>
           <marker
             id="flow-arrow"

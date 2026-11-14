@@ -21,7 +21,7 @@ export function Navbar() {
         {/* Logo */}
         <button
           onClick={() => navigate('/')}
-          className="text-xl font-black"
+          className="text-xl font-black min-h-[44px] px-1 inline-flex items-center"
           style={{ color: '#EDF0F7', fontFamily: 'Syne Variable, Syne, sans-serif', background: 'none', border: 'none', cursor: 'pointer' }}
           aria-label="Praman home"
         >
@@ -33,26 +33,26 @@ export function Navbar() {
         <div className="hidden md:flex items-center gap-8">
           {!isDemo && (
             <>
-              <a href="#how-it-works" className="text-sm transition-colors duration-150" style={{ color: 'rgba(237,240,247,0.7)' }}
+              <a href="#how-it-works" className="text-sm min-h-[44px] inline-flex items-center transition-colors duration-150" style={{ color: 'rgba(237,240,247,0.8)' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#EDF0F7'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.7)'; }}>
+                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.8)'; }}>
                 How it works
               </a>
-              <a href="#developer" className="text-sm transition-colors duration-150" style={{ color: 'rgba(237,240,247,0.7)' }}
+              <a href="#developer" className="text-sm min-h-[44px] inline-flex items-center transition-colors duration-150" style={{ color: 'rgba(237,240,247,0.8)' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#EDF0F7'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.7)'; }}>
+                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.8)'; }}>
                 Developer
               </a>
-              <a href="#faq" className="text-sm transition-colors duration-150" style={{ color: 'rgba(237,240,247,0.7)' }}
+              <a href="#faq" className="text-sm min-h-[44px] inline-flex items-center transition-colors duration-150" style={{ color: 'rgba(237,240,247,0.8)' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#EDF0F7'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.7)'; }}>
+                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.8)'; }}>
                 FAQ
               </a>
             </>
           )}
           <button
             onClick={() => navigate(isDemo ? '/' : '/demo')}
-            className="px-5 py-2 rounded text-sm font-semibold transition-all duration-150"
+            className="px-5 py-2 min-h-[44px] rounded text-sm font-semibold transition-all duration-150 inline-flex items-center"
             style={{
               background: '#F2A93B',
               color: '#17144F',
@@ -69,7 +69,7 @@ export function Navbar() {
 
         {/* Mobile menu button */}
         <button
-          className="md:hidden p-2"
+          className="md:hidden p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center"
           onClick={() => setMenuOpen(o => !o)}
           aria-expanded={menuOpen}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -82,15 +82,15 @@ export function Navbar() {
       {/* Mobile menu */}
       {menuOpen && (
         <div
-          className="md:hidden px-6 py-4 space-y-4"
+          className="md:hidden px-6 py-4 space-y-2"
           style={{ background: '#17144F', borderTop: '1px solid rgba(237,240,247,0.08)' }}
         >
-          <a href="#how-it-works" className="block text-sm py-2" style={{ color: 'rgba(237,240,247,0.8)' }} onClick={() => setMenuOpen(false)}>How it works</a>
-          <a href="#developer" className="block text-sm py-2" style={{ color: 'rgba(237,240,247,0.8)' }} onClick={() => setMenuOpen(false)}>Developer</a>
-          <a href="#faq" className="block text-sm py-2" style={{ color: 'rgba(237,240,247,0.8)' }} onClick={() => setMenuOpen(false)}>FAQ</a>
+          <a href="#how-it-works" className="min-h-[44px] flex items-center text-sm" style={{ color: 'rgba(237,240,247,0.85)' }} onClick={() => setMenuOpen(false)}>How it works</a>
+          <a href="#developer" className="min-h-[44px] flex items-center text-sm" style={{ color: 'rgba(237,240,247,0.85)' }} onClick={() => setMenuOpen(false)}>Developer</a>
+          <a href="#faq" className="min-h-[44px] flex items-center text-sm" style={{ color: 'rgba(237,240,247,0.85)' }} onClick={() => setMenuOpen(false)}>FAQ</a>
           <button
             onClick={() => { navigate('/demo'); setMenuOpen(false); }}
-            className="w-full py-3 rounded text-sm font-semibold"
+            className="w-full min-h-[44px] py-3 rounded text-sm font-semibold"
             style={{ background: '#F2A93B', color: '#17144F', border: 'none', cursor: 'pointer', fontFamily: 'Syne Variable, Syne, sans-serif' }}
           >
             Try the live demo

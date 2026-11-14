@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.state import usage, reports, reset
 from app.dependencies import require_api_key
 from app.routers.risk import router as risk_router
+from app.engine.sanctions import info as sanctions_info
 
 
 def load_config():
@@ -31,12 +32,25 @@ app = FastAPI(title="Praman B2B Crypto Wallet Risk Screening API", version="0.1.
 # CORS – only the dev fronts
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
+    expose_headers=["X-Report-SHA256", "X-Request-ID"],
     allow_headers=["*"],
 )
 
+
+# X-Request-ID middleware – adds X-Request-ID header to every response
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    # Generate 12 hex character request ID
+    request_id = os.getenv("REQUEST_ID") or ""
+    if not request_id:
+        import uuid
+        request_id = uuid.uuid4().hex[:12]
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 # ============================================================
 # Global error handlers – every error returns {"error": "<code>", "message": "<text>"}
@@ -86,6 +100,32 @@ def generic_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.on_event("startup")
+async def print_startup_info():
+    # Mode
+    use_live = os.getenv("USE_FIXTURES", "false").lower() == "false"
+    etherscan_key = os.getenv("ETHERSCAN_API_KEY")
+    mode = "live" if use_live and etherscan_key else "fixture"
+    
+    # Quota
+    quota = int(os.getenv("QUOTA", "100"))
+    
+    # API keys configured
+    api_keys_str = os.getenv("API_KEYS", "")
+    api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+    num_keys = len(api_keys)
+    
+    # Sanctions info
+    from app.engine.sanctions import info as sanctions_info
+    sanctions = sanctions_info()
+    sanctions_count = sanctions.get("count", 0)
+    using_sample = sanctions.get("using_sample", False)
+    
+    # Etherscan key status
+    etherscan_status = "etherscan_key: set" if etherscan_key else "etherscan_key: missing"
+    
+    print(f"mode={mode} quota={quota} keys={num_keys} sanctions_count={sanctions_count} using_sample={using_sample} {etherscan_status}")
+
 # ============================================================
 # Include the risk router with require_api_key dependency
 # ============================================================
@@ -102,14 +142,27 @@ async def root():
     return {"status": "ok", "message": "Praman API is running"}
 
 
-# ============================================================
-# /v1/config – returns the four bands from thresholds.json
+# /v1/health – no auth required
+@app.get("/v1/health", include_in_schema=False)
+async def health_endpoint():
+    """Health check without authentication."""
+    use_live = os.getenv("USE_FIXTURES", "false").lower() == "false"
+    etherscan_key = os.getenv("ETHERSCAN_API_KEY")
+    mode = "live" if use_live and etherscan_key else "fixture"
+    sanctions = sanctions_info()
+    return {
+        "status": "ok",
+        "mode": mode,
+        "sanctions_using_sample": sanctions.get("using_sample", False),
+    }
+
 # ============================================================
 
 @app.get("/v1/config")
 async def config_endpoint(request: Request, api_key: str = Depends(require_api_key)):
     """Configuration – risk bands, auth required."""
-    return {"bands": config}
+    from app.engine.sanctions import info as sanctions_info
+    return {"bands": config, "sanctions": sanctions_info()}
 
 
 # ============================================================
@@ -125,6 +178,45 @@ async def usage_endpoint(api_key: str = Depends(require_api_key)):
     plan = "free" if os.getenv("USE_FIXTURES", "false").lower() == "true" else "paid"
     return {"checks_used": used, "quota": quota, "plan": plan}
 
+
+# /v1/dev/reset – conditional on DEMO_MODE
+@app.post("/v1/dev/reset")
+async def dev_reset(request: Request):
+    """Development reset endpoint. Only active when DEMO_MODE=true."""
+    demo_mode = os.getenv("DEMO_MODE", "false")
+    api_key = request.headers.get("X-API-Key", "")
+    
+    if demo_mode != "true":
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "not_found", "message": "Not found"},
+            media_type="application/json",
+        )
+    
+    # Auth check
+    if not api_key:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "unauthorized", "message": "Invalid or missing API key"},
+            media_type="application/json",
+        )
+    
+    # Clear in-memory state
+    from app.state import usage, reports, reset
+    reset()
+    
+    # Truncate audit log file
+    project_root = Path(__file__).resolve().parent.parent
+    audit_log = project_root / "audit" / "audit.log"
+    with open(audit_log, "w") as f:
+        pass  # truncate
+    
+    # Truncate approvals.jsonl
+    approvals_log = project_root / "data" / "approvals.jsonl"
+    with open(approvals_log, "w") as f:
+        pass  # truncate
+    
+    return {"status": "reset"}
 
 # ============================================================
 # POST /v1/feedback

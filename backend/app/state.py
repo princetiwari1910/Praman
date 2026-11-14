@@ -6,9 +6,11 @@ QUOTA = 100
 # Keys are the API key string; values are int (counts) or dict (fixture result).
 usage: dict[str, int] = {}
 reports: dict[str, dict] = {}
+approvals: dict[str, list] = {}
 
 
 def reset() -> None:
     """Clear usage and reports – called before/after each test."""
     usage.clear()
     reports.clear()
+    approvals.clear()

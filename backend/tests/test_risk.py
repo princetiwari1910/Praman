@@ -147,3 +147,19 @@ def test_error_shape_has_error_and_message():
     assert "message" in data
     assert isinstance(data, dict)
     assert len(data) == 2
+
+def test_config_has_sanctions_key():
+    """Test that /v1/config includes the 'sanctions' key."""
+    response = client.get("/v1/config", headers={"X-API-Key": "test-key"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "sanctions" in data
+    assert isinstance(data["sanctions"], dict)
+    assert "source" in data["sanctions"]
+    assert "count" in data["sanctions"]
+    assert "loaded_at" in data["sanctions"]
+
+def test_live_mode_monkeypatched_fetch(monkeypatch):
+    """Test live mode with monkeypatched fetch_wallet returning canned data."""
+    import app.engine.live as live_mod
+    

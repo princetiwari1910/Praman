@@ -1,36 +1,61 @@
 import { useEffect, useRef, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
-const REQUEST = `GET /v1/risk/ethereum/0x742d35Cc...Fd8e9
-Authorization: Bearer <api_key>
-Accept: application/json`;
+type Lang = 'curl' | 'python' | 'javascript';
+
+const SNIPPETS: Record<Lang, { label: string; code: string }> = {
+  curl: {
+    label: 'curl',
+    code: `curl -s -H "X-API-Key: YOUR_API_KEY" \\
+  http://127.0.0.1:8000/v1/risk/ethereum/0x2222222222222222222222222222222222222222`,
+  },
+  python: {
+    label: 'Python (requests)',
+    code: `import requests
+
+resp = requests.get(
+    "http://127.0.0.1:8000/v1/risk/ethereum/0x2222222222222222222222222222222222222222",
+    headers={"X-API-Key": "YOUR_API_KEY"},
+)
+print(resp.json())`,
+  },
+  javascript: {
+    label: 'JavaScript (fetch)',
+    code: `const res = await fetch(
+  "http://127.0.0.1:8000/v1/risk/ethereum/0x2222222222222222222222222222222222222222",
+  { headers: { "X-API-Key": "YOUR_API_KEY" } }
+);
+const data = await res.json();`,
+  },
+};
 
 const RESPONSE = `{
-  "address": "0x742d35Cc6634C0532925a3b8D4C9C4F3b4Fd8e9",
+  "address": "0x2222222222222222222222222222222222222222",
   "chain": "ethereum",
-  "score": 73,
-  "band": "HIGH",
-  "sanctions_hit": false,
+  "score": 87,
+  "band": "severe",
+  "sanctions_hit": true,
   "reasons": [
     {
-      "code": "MIXER_CONTACT",
-      "title": "Mixer interaction detected",
-      "weight": 0.34,
-      "detail": "Direct transfer to Tornado Cash contract 14 days ago."
+      "code": "SANCTIONS_MATCH",
+      "title": "Sanctions Match",
+      "weight": 60,
+      "detail": "Address found on sanctions list"
     },
     {
-      "code": "HIGH_VELOCITY",
-      "title": "Unusual transaction velocity",
-      "weight": 0.28,
-      "detail": "147 transactions in 72 hours, 6x above baseline."
+      "code": "MIXER_EXPOSURE",
+      "title": "Mixer Exposure",
+      "weight": 27,
+      "detail": "Mixer share: 35%"
     }
   ],
   "graph": {
-    "nodes": [{"id": "0x742d", "label": "Target", "risk": 73}],
-    "edges": [{"source": "0x742d", "target": "0xTornado", "value": 2.4}]
+    "nodes": [{"id": "addr_2", "label": "0x2222...2222", "risk": "high"}],
+    "edges": [{"source": "addr_2", "target": "addr_3", "value": 10.0}]
   },
-  "generated_at": "2024-11-10T05:03:07Z",
-  "data_mode": "live"
+  "generated_at": "2026-11-11T11:45:00+00:00",
+  "data_mode": "fixture"
 }`;
 
 function useTypewriter(text: string, speed = 18, active = false, immediate = false) {
@@ -62,7 +87,6 @@ function useTypewriter(text: string, speed = 18, active = false, immediate = fal
 }
 
 function tokenize(line: string) {
-  // Simple JSON syntax colouring
   return line
     .replace(/"([^"]+)":/g, '<span style="color:#1D9C86">"$1"</span>:')
     .replace(/: "([^"]+)"/g, ': <span style="color:#F2A93B">"$1"</span>')
@@ -72,18 +96,32 @@ function tokenize(line: string) {
 
 export function DeveloperSection() {
   const [started, setStarted] = useState(false);
+  const [activeLang, setActiveLang] = useState<Lang>('curl');
+  const [copiedLang, setCopiedLang] = useState<Lang | null>(null);
   const reduced = useReducedMotion();
   const sectionRef = useRef<HTMLDivElement>(null);
   const typed = useTypewriter(RESPONSE, 12, started, reduced);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setStarted(true); },
+      ([entry]) => {
+        if (entry.isIntersecting) setStarted(true);
+      },
       { threshold: 0.3 }
     );
     if (sectionRef.current) observer.observe(sectionRef.current);
     return () => observer.disconnect();
   }, []);
+
+  async function copySnippet(lang: Lang) {
+    try {
+      await navigator.clipboard.writeText(SNIPPETS[lang].code);
+      setCopiedLang(lang);
+      setTimeout(() => setCopiedLang(null), 2000);
+    } catch {
+      // Clipboard unavailable
+    }
+  }
 
   return (
     <section
@@ -95,7 +133,7 @@ export function DeveloperSection() {
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid lg:grid-cols-2 gap-16 items-start">
           {/* Left: copy */}
-          <div>
+          <div className="min-w-0">
             <span className="text-sm" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
               — developer-first
             </span>
@@ -108,14 +146,14 @@ export function DeveloperSection() {
             </h2>
             <p className="text-lg mb-8 leading-relaxed" style={{ color: '#5B6178' }}>
               A single GET request returns the score, the band, every reason code with its weight,
-              and the wallet graph. Your team can build screening into any workflow in an afternoon.
+              and the wallet graph. Your team can build screening into any workflow cleanly.
             </p>
             <ul className="space-y-3">
               {[
                 'REST + JSON — works with any stack',
                 'Reason codes map to your compliance vocabulary',
-                'Graph edges expose multi-hop exposure paths',
-                'Webhooks available for batch screening jobs',
+                'Graph edges expose counterparty paths',
+                'Batch CSV, verification, and analyst review endpoints included',
               ].map(item => (
                 <li key={item} className="flex items-start gap-3 text-sm" style={{ color: '#5B6178' }}>
                   <span style={{ color: '#1D9C86', fontFamily: 'DM Mono, monospace', marginTop: '2px' }}>→</span>
@@ -126,31 +164,76 @@ export function DeveloperSection() {
           </div>
 
           {/* Right: code block */}
-          <div>
-            {/* Request */}
+          <div className="min-w-0">
+            {/* Request with curl / Python / JS copy buttons */}
             <div
               className="rounded-lg mb-3 p-4"
               style={{ background: '#17144F' }}
               role="region"
-              aria-label="API request example"
+              aria-label="API request examples"
             >
-              <div className="flex items-center gap-2 mb-3">
-                <span
-                  className="text-xs px-2 py-0.5 rounded"
-                  style={{ background: '#1D9C86', color: '#EDF0F7', fontFamily: 'DM Mono, monospace' }}
-                >
-                  GET
-                </span>
-                <span style={{ color: 'rgba(237,240,247,0.5)', fontFamily: 'DM Mono, monospace', fontSize: '12px' }}>
-                  /v1/risk/&#123;chain&#125;/&#123;address&#125;
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-xs px-2 py-0.5 rounded"
+                    style={{ background: '#1D9C86', color: '#EDF0F7', fontFamily: 'DM Mono, monospace' }}
+                  >
+                    GET
+                  </span>
+                  <span style={{ color: 'rgba(237,240,247,0.75)', fontFamily: 'DM Mono, monospace', fontSize: '12px' }}>
+                    /v1/risk/ethereum/&#123;address&#125;
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Request language">
+                  {(['curl', 'python', 'javascript'] as const).map(lang => (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() => setActiveLang(lang)}
+                      className="px-2.5 py-1 min-h-[36px] rounded text-xs font-mono transition-colors duration-150"
+                      style={{
+                        background: activeLang === lang ? '#F2A93B' : 'rgba(237,240,247,0.1)',
+                        color: activeLang === lang ? '#17144F' : '#EDF0F7',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontFamily: 'DM Mono, monospace',
+                      }}
+                    >
+                      {lang === 'javascript' ? 'JS' : lang === 'python' ? 'Python' : 'curl'}
+                    </button>
+                  ))}
+                </div>
               </div>
+
               <pre
-                className="code-block overflow-x-auto"
-                style={{ color: 'rgba(237,240,247,0.8)', margin: 0 }}
+                className="code-block overflow-x-auto mb-3"
+                style={{ color: 'rgba(237,240,247,0.88)', margin: 0 }}
               >
-                <code>{REQUEST}</code>
+                <code>{SNIPPETS[activeLang].code}</code>
               </pre>
+
+              <div className="flex flex-wrap gap-2 pt-3" style={{ borderTop: '1px solid rgba(237,240,247,0.12)' }}>
+                {(['curl', 'python', 'javascript'] as const).map(lang => (
+                  <button
+                    key={lang}
+                    type="button"
+                    onClick={() => copySnippet(lang)}
+                    className="px-3 py-2 min-h-[44px] rounded text-xs font-mono inline-flex items-center gap-1.5 border transition-colors duration-150"
+                    style={{
+                      borderColor: 'rgba(237,240,247,0.25)',
+                      background: copiedLang === lang ? 'rgba(29,156,134,0.2)' : 'transparent',
+                      color: '#EDF0F7',
+                      cursor: 'pointer',
+                      fontFamily: 'DM Mono, monospace',
+                    }}
+                    aria-label={`Copy ${SNIPPETS[lang].label} snippet`}
+                  >
+                    {copiedLang === lang ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+                    <span>{copiedLang === lang ? `Copied ${lang}` : `Copy ${SNIPPETS[lang].label}`}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Response */}
@@ -164,13 +247,13 @@ export function DeveloperSection() {
                 <span style={{ color: '#1D9C86', fontFamily: 'DM Mono, monospace', fontSize: '11px' }}>
                   200 OK
                 </span>
-                <span style={{ color: 'rgba(237,240,247,0.4)', fontFamily: 'DM Mono, monospace', fontSize: '11px' }}>
+                <span style={{ color: 'rgba(237,240,247,0.6)', fontFamily: 'DM Mono, monospace', fontSize: '11px' }}>
                   application/json
                 </span>
               </div>
               <pre
                 className="code-block overflow-x-auto"
-                style={{ color: 'rgba(237,240,247,0.85)', margin: 0, maxHeight: '380px', overflowY: 'auto' }}
+                style={{ color: 'rgba(237,240,247,0.88)', margin: 0, maxHeight: '380px', overflowY: 'auto' }}
               >
                 <code
                   dangerouslySetInnerHTML={{
@@ -185,7 +268,7 @@ export function DeveloperSection() {
                     background: '#F2A93B',
                     marginLeft: '1px',
                     verticalAlign: 'text-bottom',
-                    animation: 'blink 1s step-end infinite',
+                    animation: reduced ? 'none' : 'blink 1s step-end infinite',
                   }}
                   aria-hidden="true"
                 />

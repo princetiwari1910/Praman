@@ -44,7 +44,7 @@ export function Footer() {
                   <li key={link.label}>
                     <a
                       href={link.href}
-                      className="text-sm transition-colors duration-150"
+                      className="text-sm min-h-[44px] inline-flex items-center transition-colors duration-150"
                       style={{ color: 'rgba(237,240,247,0.8)' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#EDF0F7'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.8)'; }}
@@ -56,7 +56,7 @@ export function Footer() {
                 <li>
                   <button
                     onClick={() => navigate('/demo')}
-                    className="text-sm transition-colors duration-150"
+                    className="text-sm min-h-[44px] inline-flex items-center transition-colors duration-150"
                     style={{ color: '#F2A93B', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                   >
                     Try the live demo
@@ -76,7 +76,7 @@ export function Footer() {
             </div>
             <a
               href={`mailto:${BRAND.partnerEmail}`}
-              className="text-sm transition-colors duration-150"
+              className="text-sm min-h-[44px] inline-flex items-center transition-colors duration-150"
               style={{ color: 'rgba(237,240,247,0.85)' }}
               onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#EDF0F7'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'rgba(237,240,247,0.85)'; }}

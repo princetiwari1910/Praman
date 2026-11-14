@@ -9,6 +9,7 @@ import {
   Check,
   Upload,
   ShieldCheck,
+  RotateCcw,
 } from 'lucide-react';
 import { cleanWallet, defaultWallet } from '@/fixtures/cleanWallet';
 import { highRiskWallet } from '@/fixtures/highRiskWallet';
@@ -16,8 +17,13 @@ import type {
   RiskResult,
   UsageResponse,
   ReportCreateResponse,
-  BatchRowResult,
+  BatchFlatRow,
+  BatchErrorRow,
   AuditVerifyResponse,
+  ExplainResponse,
+  VerifyReportResponse,
+  ApprovalResponse,
+  ApprovalDecision,
   ApiErrorResponse,
 } from '@/types/api';
 import { BRAND } from '@/constants/brand';
@@ -46,29 +52,45 @@ function scoreColor(score: number): string {
   return '#1D9C86';
 }
 
+function bandBarColor(band: string): string {
+  const key = band.toLowerCase();
+  if (key === 'severe' || key === 'high') return '#E2554F';
+  if (key === 'medium') return '#F2A93B';
+  return '#1D9C86';
+}
+
+function bandTextColor(band: string): string {
+  const key = band.toLowerCase();
+  if (key === 'severe' || key === 'high') return '#B8332E';
+  if (key === 'medium') return '#8C5808';
+  return '#147564';
+}
+
 function bandLabel(band: string): string {
   const key = band.toLowerCase();
   return { low: 'Low', medium: 'Medium', high: 'High', severe: 'Severe' }[key] ?? band;
 }
 
-function bandToInt(band: string): number {
-  const key = band.toLowerCase();
-  if (key === 'severe') return 4;
-  if (key === 'high') return 3;
-  if (key === 'medium') return 2;
-  return 1;
+function isBatchErrorRow(row: BatchFlatRow): row is BatchErrorRow {
+  return 'error' in row && row.error !== undefined;
 }
 
-async function parseErrorMessage(res: Response): Promise<string> {
+async function parseErrorMessage(res: Response, checksUsed: number, quota: number): Promise<string> {
+  let apiText = `Request failed with status ${res.status}`;
   try {
     const body = (await res.json()) as Partial<ApiErrorResponse>;
     if (body.message) {
-      return body.error ? `${body.error}: ${body.message}` : body.message;
+      apiText = body.error ? `${body.error}: ${body.message}` : body.message;
     }
   } catch {
     // Non-JSON response
   }
-  return `Request failed with status ${res.status}`;
+
+  if (res.status === 400) return `Invalid address or request — ${apiText}`;
+  if (res.status === 401) return `API key missing or wrong — ${apiText}`;
+  if (res.status === 422) return `Validation error — ${apiText}`;
+  if (res.status === 429) return `Quota reached (${checksUsed} / ${quota}) — ${apiText}`;
+  return apiText;
 }
 
 function fixtureForAddress(addr: string): RiskResult {
@@ -131,7 +153,7 @@ function DemoGauge({ score, band }: { score: number; band: string }) {
   const needleY = 90 + radius * Math.sin(angle);
 
   return (
-    <div className="flex flex-col items-center gap-1" role="img" aria-label={`Risk score ${score} out of 100`}>
+    <div className="flex flex-col items-center gap-1" role="img" aria-label={`Risk score ${score} out of 100, ${band}`}>
       <svg width="180" height="100" viewBox="0 0 180 100" aria-hidden="true">
         <path d="M 20 90 A 70 70 0 0 1 160 90" fill="none" stroke="rgba(23,20,79,0.12)" strokeWidth="10" strokeLinecap="round" />
         <path
@@ -165,7 +187,7 @@ function ReasonList({ reasons, score }: { reasons: RiskResult['reasons']; score:
   const terms = reasons.map(r => Math.trunc(r.weight));
 
   return (
-    <div>
+    <div className="overflow-x-auto max-w-full">
       <ul className="space-y-3" aria-label="Risk reasons">
         {reasons.map(r => {
           const pts = Math.trunc(r.weight);
@@ -229,15 +251,36 @@ export function Demo() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [networkNotice, setNetworkNotice] = useState<string | null>(null);
+  const [isNetworkFallback, setIsNetworkFallback] = useState(false);
 
-  // Usage
+  // Usage & Config
   const [checksUsed, setChecksUsed] = useState<number>(0);
+  const [quota, setQuota] = useState<number>(QUOTA);
+
+  // What-if / Explainability
+  const [explainData, setExplainData] = useState<ExplainResponse | null>(null);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
 
   // Report & Attestation
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [reportId, setReportId] = useState<string | null>(null);
   const [reportSha256, setReportSha256] = useState<string | null>(null);
-  const [copiedHash, setCopiedHash] = useState(false);
+  const [copiedAttestCmd, setCopiedAttestCmd] = useState(false);
+
+  // Verify report
+  const [verifyResult, setVerifyResult] = useState<VerifyReportResponse | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyIsTamper, setVerifyIsTamper] = useState(false);
+
+  // Analyst review / approval
+  const [approval, setApproval] = useState<ApprovalResponse | null>(null);
+  const [analystName, setAnalystName] = useState('');
+  const [reviewNote, setReviewNote] = useState('');
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   // Feedback
   const [feedbackSent, setFeedbackSent] = useState<string | null>(null);
@@ -245,7 +288,7 @@ export function Demo() {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
   // Batch CSV
-  const [batchResults, setBatchResults] = useState<BatchRowResult[]>([]);
+  const [batchResults, setBatchResults] = useState<BatchFlatRow[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchNotice, setBatchNotice] = useState<string | null>(null);
@@ -254,6 +297,9 @@ export function Demo() {
   const [auditResult, setAuditResult] = useState<AuditVerifyResponse | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+
+  const singleTabRef = useRef<HTMLButtonElement>(null);
+  const batchTabRef = useRef<HTMLButtonElement>(null);
 
   const fetchUsage = useCallback(async () => {
     if (!API_V1_BASE) return;
@@ -269,14 +315,100 @@ export function Demo() {
       if (typeof data.checks_used === 'number') {
         setChecksUsed(data.checks_used);
       }
+      if (typeof data.quota === 'number' && data.quota > 0) {
+        setQuota(data.quota);
+      }
     } catch {
       // Backend unreachable; retain local counter
     }
   }, []);
 
+  const fetchConfig = useCallback(async () => {
+    if (!API_V1_BASE) return;
+    try {
+      const res = await fetch(`${API_V1_BASE}/config`, {
+        headers: {
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+      });
+      if (!res.ok) return;
+      const cfg = (await res.json()) as { quota?: number };
+      if (typeof cfg.quota === 'number' && cfg.quota > 0) {
+        setQuota(cfg.quota);
+      }
+    } catch {
+      // Optional config endpoint unreachable
+    }
+  }, []);
+
   useEffect(() => {
+    fetchConfig();
     fetchUsage();
-  }, [fetchUsage]);
+  }, [fetchConfig, fetchUsage]);
+
+  async function loadExplain(addr: string) {
+    if (!API_V1_BASE) return;
+    setExplainLoading(true);
+    setExplainError(null);
+    try {
+      const res = await fetch(`${API_V1_BASE}/explain/${CHAIN}/${addr}`, {
+        headers: {
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+      });
+      if (!res.ok) {
+        setExplainError(await parseErrorMessage(res, checksUsed, quota));
+        setExplainData(null);
+        setExplainLoading(false);
+        return;
+      }
+      const data = (await res.json()) as ExplainResponse;
+      setExplainData(data);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Network failure';
+      setExplainError(`Could not load counterfactuals (${reason}).`);
+      setExplainData(null);
+    } finally {
+      setExplainLoading(false);
+    }
+  }
+
+  async function loadApprovalStatus(cleanId: string) {
+    if (!API_V1_BASE) return;
+    try {
+      const res = await fetch(`${API_V1_BASE}/reports/${cleanId}/approval`, {
+        headers: {
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+      });
+      if (!res.ok) {
+        if (res.status === 404) {
+          try {
+            const errBody = (await res.json()) as { error?: string; message?: string };
+            const msg = errBody.error || errBody.message || 'report_not_found';
+            setApprovalError(msg);
+            setApproval(null);
+            return;
+          } catch {
+            setApprovalError('report_not_found');
+            setApproval(null);
+            return;
+          }
+        }
+        setApprovalError(await parseErrorMessage(res, checksUsed, quota));
+        setApproval(null);
+        return;
+      }
+      const data = (await res.json()) as ApprovalResponse;
+      setApproval(data);
+      setApprovalError(null);
+    } catch {
+      setApproval({ decision: 'pending' });
+    }
+  }
 
   async function handleScreen(e: React.FormEvent) {
     e.preventDefault();
@@ -291,8 +423,16 @@ export function Demo() {
     setLoading(true);
     setError(null);
     setNetworkNotice(null);
+    setIsNetworkFallback(false);
+    setExplainData(null);
+    setExplainError(null);
     setReportError(null);
+    setReportId(null);
     setReportSha256(null);
+    setVerifyResult(null);
+    setVerifyError(null);
+    setApproval(null);
+    setApprovalError(null);
     setFeedbackSent(null);
     setFeedbackError(null);
     setResult(null);
@@ -307,7 +447,7 @@ export function Demo() {
         });
 
         if (!res.ok) {
-          const msg = await parseErrorMessage(res);
+          const msg = await parseErrorMessage(res, checksUsed, quota);
           setError(msg);
           setLoading(false);
           return;
@@ -326,32 +466,40 @@ export function Demo() {
         setResult(data);
         setLoading(false);
         fetchUsage();
+        loadExplain(trimmed);
         return;
       } catch (err) {
         const reason = err instanceof Error ? err.message : 'Network failure';
-        setNetworkNotice(`Backend unreachable (${reason}) — falling back to local fixture data.`);
+        setNetworkNotice(`Backend unreachable (${reason}) — showing local fixture fallback.`);
       }
     } else {
-      setNetworkNotice('API base URL is not configured — showing local fixture data.');
+      setNetworkNotice('API base URL is not configured — showing local fixture fallback.');
     }
 
     const fixture = fixtureForAddress(trimmed);
-    setChecksUsed(prev => Math.min(QUOTA, prev + 1));
+    setIsNetworkFallback(true);
+    setChecksUsed(prev => Math.min(quota, prev + 1));
     setResult(fixture);
     setLoading(false);
   }
 
   async function handleDownloadReport() {
     if (!result) return;
-    if (!API_V1_BASE) {
-      setReportError('Backend API URL is not configured.');
+    if (!API_V1_BASE || isNetworkFallback) {
+      setReportError('PDF report generation requires a reachable backend API.');
       setReportSha256(null);
+      setReportId(null);
       return;
     }
 
     setDownloadingReport(true);
     setReportError(null);
     setReportSha256(null);
+    setReportId(null);
+    setVerifyResult(null);
+    setVerifyError(null);
+    setApproval(null);
+    setApprovalError(null);
 
     try {
       const createRes = await fetch(`${API_V1_BASE}/reports`, {
@@ -365,7 +513,7 @@ export function Demo() {
       });
 
       if (!createRes.ok) {
-        setReportError(await parseErrorMessage(createRes));
+        setReportError(await parseErrorMessage(createRes, checksUsed, quota));
         setReportSha256(null);
         setDownloadingReport(false);
         return;
@@ -379,7 +527,7 @@ export function Demo() {
       });
 
       if (!pdfRes.ok) {
-        setReportError(await parseErrorMessage(pdfRes));
+        setReportError(await parseErrorMessage(pdfRes, checksUsed, quota));
         setReportSha256(null);
         setDownloadingReport(false);
         return;
@@ -396,7 +544,9 @@ export function Demo() {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 
+      setReportId(cleanId);
       setReportSha256(apiSha256);
+      loadApprovalStatus(cleanId);
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Network failure';
       setReportError(`Could not reach backend to generate PDF report (${reason}).`);
@@ -406,13 +556,106 @@ export function Demo() {
     }
   }
 
+  async function handleVerifyReport(tamper: boolean) {
+    if (!result || !reportSha256 || !API_V1_BASE || isNetworkFallback) return;
+
+    setVerifyLoading(true);
+    setVerifyError(null);
+    setVerifyIsTamper(tamper);
+
+    const scoreToSend = tamper ? (result.score === 100 ? 99 : result.score + 1) : result.score;
+
+    try {
+      const res = await fetch(`${API_V1_BASE}/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+        body: JSON.stringify({
+          address: result.address,
+          chain: result.chain,
+          score: scoreToSend,
+          band: result.band,
+          reasons: result.reasons,
+          generated_at: result.generated_at,
+          sha256: reportSha256,
+        }),
+      });
+
+      if (!res.ok) {
+        setVerifyError(await parseErrorMessage(res, checksUsed, quota));
+        setVerifyResult(null);
+        setVerifyLoading(false);
+        return;
+      }
+
+      const data = (await res.json()) as VerifyReportResponse;
+      setVerifyResult(data);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Network failure';
+      setVerifyError(`Could not reach verify endpoint (${reason}).`);
+      setVerifyResult(null);
+    } finally {
+      setVerifyLoading(false);
+    }
+  }
+
+  async function handleApprove(decision: 'approved' | 'rejected' | 'needs_review') {
+    if (!reportId || !API_V1_BASE || isNetworkFallback) return;
+    const trimmedName = analystName.trim();
+    if (!trimmedName) {
+      setApprovalError('Enter analyst name before recording a decision.');
+      return;
+    }
+
+    setApprovalLoading(true);
+    setApprovalError(null);
+
+    try {
+      const res = await fetch(`${API_V1_BASE}/reports/${reportId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+        body: JSON.stringify({
+          analyst_name: trimmedName,
+          decision,
+          note: reviewNote.trim() || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        setApprovalError(await parseErrorMessage(res, checksUsed, quota));
+        setApprovalLoading(false);
+        return;
+      }
+
+      const data = (await res.json()) as ApprovalResponse;
+      setApproval({
+        decision: data.decision ?? decision,
+        analyst_name: data.analyst_name ?? trimmedName,
+        note: data.note ?? (reviewNote.trim() || undefined),
+        decided_at: data.decided_at ?? data.timestamp ?? new Date().toISOString(),
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Network failure';
+      setApprovalError(`Could not save approval (${reason}).`);
+    } finally {
+      setApprovalLoading(false);
+    }
+  }
+
   async function handleFeedback(verdict: 'true_positive' | 'false_positive' | 'unsure') {
     if (!result) return;
     setSubmittingFeedback(true);
     setFeedbackError(null);
 
-    if (!API_V1_BASE) {
-      setFeedbackSent(verdict);
+    if (!API_V1_BASE || isNetworkFallback) {
+      setFeedbackError('Feedback requires a reachable backend API.');
       setSubmittingFeedback(false);
       return;
     }
@@ -429,7 +672,7 @@ export function Demo() {
       });
 
       if (!res.ok) {
-        setFeedbackError(await parseErrorMessage(res));
+        setFeedbackError(await parseErrorMessage(res, checksUsed, quota));
         setSubmittingFeedback(false);
         return;
       }
@@ -470,19 +713,24 @@ export function Demo() {
           body: formData,
         });
 
-        if (res.ok) {
-          const payload = (await res.json()) as { results?: BatchRowResult[] } | BatchRowResult[];
-          const rows = Array.isArray(payload) ? payload : payload.results ?? [];
-          setBatchResults(rows);
+        if (!res.ok) {
+          setBatchResults([]);
+          setBatchError(await parseErrorMessage(res, checksUsed, quota));
           setBatchLoading(false);
-          fetchUsage();
           return;
         }
 
-        // Backend responded with an HTTP error (400/401/404/422/429) — display error and do NOT fall back to fixtures
-        setBatchResults([]);
-        setBatchError(await parseErrorMessage(res));
+        const payload: unknown = await res.json();
+        if (!Array.isArray(payload)) {
+          setBatchResults([]);
+          setBatchError('Unexpected response from server');
+          setBatchLoading(false);
+          return;
+        }
+
+        setBatchResults(payload as BatchFlatRow[]);
         setBatchLoading(false);
+        fetchUsage();
         return;
       } catch (err) {
         const reason = err instanceof Error ? err.message : 'Network failure';
@@ -492,28 +740,23 @@ export function Demo() {
       setBatchNotice('Demo data · API base URL is not configured — showing local fixture batch results.');
     }
 
-    const fallbackRows: BatchRowResult[] = addresses.map(addr => {
+    const fallbackRows: BatchFlatRow[] = addresses.map(addr => {
       if (!ETH_ADDRESS_RE.test(addr)) {
         return {
           address: addr,
-          chain: CHAIN,
-          score: null,
-          band: 'error',
-          sanctions_hit: false,
-          top_reason: 'invalid_address',
-          data_mode: 'fixture',
-          error: 'Invalid address format',
+          error: {
+            error: 'invalid_address',
+            message: 'Invalid wallet address format. Expected 0x followed by 40 hex characters.',
+          },
         };
       }
       const res = fixtureForAddress(addr);
       return {
         address: res.address,
-        chain: res.chain,
         score: res.score,
         band: res.band,
         sanctions_hit: res.sanctions_hit,
-        top_reason: res.reasons[0]?.code ?? 'NONE',
-        data_mode: 'fixture',
+        top_reason_code: res.reasons[0]?.code ?? 'NONE',
       };
     });
 
@@ -534,21 +777,27 @@ export function Demo() {
 
   function downloadBatchCsv() {
     if (batchResults.length === 0) return;
-    const header = ['address', 'chain', 'score', 'band', 'sanctions_hit', 'top_reason', 'data_mode', 'error'];
+    const header = ['address', 'score', 'band', 'sanctions_hit', 'top_reason'];
     const lines = [
       header.join(','),
-      ...batchResults.map(r =>
-        [
-          csvCell(r.address),
-          csvCell(r.chain),
-          r.score !== null ? String(r.score) : '',
-          csvCell(r.band),
-          String(r.sanctions_hit),
-          csvCell(r.top_reason),
-          csvCell(r.data_mode),
-          csvCell(r.error ?? ''),
-        ].join(',')
-      ),
+      ...batchResults.map(row => {
+        if (isBatchErrorRow(row)) {
+          return [
+            csvCell(row.address),
+            '',
+            csvCell('error'),
+            '',
+            csvCell(row.error.message || row.error.error),
+          ].join(',');
+        }
+        return [
+          csvCell(row.address),
+          String(row.score),
+          csvCell(row.band),
+          String(row.sanctions_hit),
+          csvCell(row.top_reason_code),
+        ].join(',');
+      }),
     ];
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -564,6 +813,7 @@ export function Demo() {
   async function handleVerifyAudit() {
     if (!API_V1_BASE) {
       setAuditError('Backend API URL is not configured.');
+      setAuditResult(null);
       return;
     }
 
@@ -579,32 +829,23 @@ export function Demo() {
       });
 
       if (!res.ok) {
-        setAuditError(await parseErrorMessage(res));
+        setAuditError(await parseErrorMessage(res, checksUsed, quota));
+        setAuditResult(null);
         setAuditLoading(false);
         return;
       }
 
-      const data = (await res.json()) as { valid?: boolean; entry_count?: number; entries?: number; count?: number };
+      const data = (await res.json()) as { valid?: boolean; entries?: number; entry_count?: number };
       setAuditResult({
         valid: Boolean(data.valid),
-        entry_count: data.entry_count ?? data.count ?? data.entries ?? 0,
+        entries: data.entries ?? data.entry_count ?? 0,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Network failure';
       setAuditError(`Could not reach audit endpoint (${reason}).`);
+      setAuditResult(null);
     } finally {
       setAuditLoading(false);
-    }
-  }
-
-  async function handleCopyHash() {
-    if (!reportSha256) return;
-    try {
-      await navigator.clipboard.writeText(`0x${reportSha256}`);
-      setCopiedHash(true);
-      setTimeout(() => setCopiedHash(false), 2000);
-    } catch {
-      // Clipboard unavailable
     }
   }
 
@@ -614,8 +855,67 @@ export function Demo() {
     setError(null);
   }
 
-  const usagePct = Math.min(100, Math.round((checksUsed / QUOTA) * 100));
-  const batchHasFixture = batchResults.some(r => r.data_mode === 'fixture');
+  function handleResetDemo() {
+    setAddress('');
+    setValidationError(null);
+    setResult(null);
+    setError(null);
+    setNetworkNotice(null);
+    setIsNetworkFallback(false);
+    setExplainData(null);
+    setExplainError(null);
+    setReportId(null);
+    setReportSha256(null);
+    setReportError(null);
+    setCopiedAttestCmd(false);
+    setVerifyResult(null);
+    setVerifyError(null);
+    setApproval(null);
+    setAnalystName('');
+    setReviewNote('');
+    setApprovalError(null);
+    setFeedbackSent(null);
+    setFeedbackError(null);
+    setBatchResults([]);
+    setBatchError(null);
+    setBatchNotice(null);
+    setAuditResult(null);
+    setAuditError(null);
+  }
+
+  function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      const next =
+        e.key === 'Home'
+          ? 'single'
+          : e.key === 'End'
+            ? 'batch'
+            : activeTab === 'single'
+              ? 'batch'
+              : 'single';
+      setActiveTab(next);
+      (next === 'single' ? singleTabRef.current : batchTabRef.current)?.focus();
+    }
+  }
+
+  const usagePct = Math.min(100, Math.round((checksUsed / quota) * 100));
+  const reportHash = reportSha256?.trim() ?? null;
+  const attestCmd = reportHash && result
+    ? `REPORT_HASH=${reportHash} BAND=${result.band.toLowerCase()} npx hardhat run scripts/demo-attest.js --network hardhat`
+    : '';
+  const currentDecision: ApprovalDecision = approval?.decision ?? 'pending';
+
+  async function handleCopyAttestCmd() {
+    if (!attestCmd) return;
+    try {
+      await navigator.clipboard.writeText(attestCmd);
+      setCopiedAttestCmd(true);
+      setTimeout(() => setCopiedAttestCmd(false), 2000);
+    } catch {
+      // Clipboard unavailable
+    }
+  }
 
   return (
     <>
@@ -638,29 +938,47 @@ export function Demo() {
               </p>
             </div>
 
-            {/* Verify audit log control */}
+            {/* Verify audit log & Reset controls */}
             <div className="flex flex-col items-start md:items-end gap-2">
-              <button
-                type="button"
-                onClick={handleVerifyAudit}
-                disabled={auditLoading}
-                className="px-3.5 py-2 rounded-lg text-xs font-mono border inline-flex items-center gap-2 transition-colors duration-150"
-                style={{
-                  borderColor: 'rgba(23,20,79,0.25)',
-                  background: '#fff',
-                  color: '#17144F',
-                  cursor: auditLoading ? 'not-allowed' : 'pointer',
-                  fontFamily: 'DM Mono, monospace',
-                }}
-                aria-label="Verify audit log"
-              >
-                {auditLoading ? (
-                  <Loader2 size={14} className={reduced ? '' : 'animate-spin'} aria-hidden="true" />
-                ) : (
-                  <ShieldCheck size={14} aria-hidden="true" />
-                )}
-                Verify audit log
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleVerifyAudit}
+                  disabled={auditLoading}
+                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border inline-flex items-center gap-2 transition-colors duration-150"
+                  style={{
+                    borderColor: 'rgba(23,20,79,0.25)',
+                    background: '#fff',
+                    color: '#17144F',
+                    cursor: auditLoading ? 'not-allowed' : 'pointer',
+                    fontFamily: 'DM Mono, monospace',
+                  }}
+                  aria-label="Verify audit log"
+                >
+                  {auditLoading ? (
+                    <Loader2 size={14} className={reduced ? '' : 'animate-spin'} aria-hidden="true" />
+                  ) : (
+                    <ShieldCheck size={14} aria-hidden="true" />
+                  )}
+                  Verify audit log
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetDemo}
+                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border inline-flex items-center gap-2 transition-colors duration-150"
+                  style={{
+                    borderColor: 'rgba(23,20,79,0.25)',
+                    background: '#fff',
+                    color: '#17144F',
+                    cursor: 'pointer',
+                    fontFamily: 'DM Mono, monospace',
+                  }}
+                  aria-label="Reset demo"
+                >
+                  <RotateCcw size={14} aria-hidden="true" />
+                  Reset
+                </button>
+              </div>
 
               {auditResult && (
                 <div
@@ -672,7 +990,7 @@ export function Demo() {
                   }}
                   role="status"
                 >
-                  {auditResult.valid ? 'Valid' : 'Invalid'} · {auditResult.entry_count} entries
+                  {auditResult.valid ? `Audit log valid, ${auditResult.entries} entries` : 'Audit log INVALID'}
                 </div>
               )}
 
@@ -691,11 +1009,16 @@ export function Demo() {
           {/* Mode Tabs */}
           <div role="tablist" aria-label="Demo screening modes" className="flex gap-2 mb-6 border-b pb-3" style={{ borderColor: 'rgba(23,20,79,0.12)' }}>
             <button
+              ref={singleTabRef}
+              id="tab-single"
               type="button"
               role="tab"
               aria-selected={activeTab === 'single'}
+              aria-controls="panel-single"
+              tabIndex={activeTab === 'single' ? 0 : -1}
               onClick={() => setActiveTab('single')}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
+              onKeyDown={handleTabKeyDown}
+              className="px-4 py-2 min-h-[44px] rounded-lg text-sm font-semibold transition-colors duration-150"
               style={{
                 background: activeTab === 'single' ? '#17144F' : 'transparent',
                 color: activeTab === 'single' ? '#EDF0F7' : '#5B6178',
@@ -707,11 +1030,16 @@ export function Demo() {
               Wallet check
             </button>
             <button
+              ref={batchTabRef}
+              id="tab-batch"
               type="button"
               role="tab"
               aria-selected={activeTab === 'batch'}
+              aria-controls="panel-batch"
+              tabIndex={activeTab === 'batch' ? 0 : -1}
               onClick={() => setActiveTab('batch')}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
+              onKeyDown={handleTabKeyDown}
+              className="px-4 py-2 min-h-[44px] rounded-lg text-sm font-semibold transition-colors duration-150"
               style={{
                 background: activeTab === 'batch' ? '#17144F' : 'transparent',
                 color: activeTab === 'batch' ? '#EDF0F7' : '#5B6178',
@@ -726,12 +1054,12 @@ export function Demo() {
 
           {/* ── WALLET CHECK TAB ───────────────────────────────────────────── */}
           {activeTab === 'single' && (
-            <div role="tabpanel" aria-label="Wallet check">
+            <div id="panel-single" role="tabpanel" aria-labelledby="tab-single">
               <div className="flex flex-wrap gap-3 mb-4">
                 <button
                   type="button"
                   onClick={() => loadTestAddress(CLEAN_TEST_ADDRESS)}
-                  className="text-xs px-3 py-1.5 rounded border transition-colors duration-150"
+                  className="text-xs px-3 py-2 min-h-[44px] rounded border transition-colors duration-150"
                   style={{
                     borderColor: '#1D9C86',
                     color: '#147564',
@@ -745,7 +1073,7 @@ export function Demo() {
                 <button
                   type="button"
                   onClick={() => loadTestAddress(HIGH_RISK_TEST_ADDRESS)}
-                  className="text-xs px-3 py-1.5 rounded border transition-colors duration-150"
+                  className="text-xs px-3 py-2 min-h-[44px] rounded border transition-colors duration-150"
                   style={{
                     borderColor: '#E2554F',
                     color: '#B8332E',
@@ -761,7 +1089,7 @@ export function Demo() {
               <form onSubmit={handleScreen} className="mb-8" noValidate>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <div
-                    className="rounded-lg px-4 py-3 text-sm border flex items-center"
+                    className="rounded-lg px-4 py-3 min-h-[44px] text-sm border flex items-center"
                     style={{
                       background: 'rgba(23,20,79,0.05)',
                       borderColor: 'rgba(23,20,79,0.15)',
@@ -781,7 +1109,7 @@ export function Demo() {
                       if (validationError) setValidationError(null);
                     }}
                     placeholder={HIGH_RISK_TEST_ADDRESS}
-                    className="flex-1 rounded-lg px-4 py-3 text-sm border"
+                    className="flex-1 min-h-[44px] rounded-lg px-4 py-3 text-sm border"
                     style={{
                       background: '#fff',
                       borderColor: validationError ? '#E2554F' : 'rgba(23,20,79,0.15)',
@@ -796,7 +1124,7 @@ export function Demo() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-8 py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors duration-150"
+                    className="px-8 py-3 min-h-[44px] rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors duration-150"
                     style={{
                       background: !loading ? '#17144F' : 'rgba(23,20,79,0.5)',
                       color: '#EDF0F7',
@@ -909,7 +1237,7 @@ export function Demo() {
                   <div className="grid lg:grid-cols-3 gap-6">
                     {/* Gauge + Report */}
                     <div
-                      className="rounded-xl p-6 flex flex-col items-center justify-between"
+                      className="min-w-0 rounded-xl p-6 flex flex-col items-center justify-between"
                       style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
                     >
                       <DemoGauge score={result.score} band={result.band} />
@@ -930,7 +1258,7 @@ export function Demo() {
                           type="button"
                           onClick={handleDownloadReport}
                           disabled={downloadingReport}
-                          className="w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors duration-150"
+                          className="w-full py-2.5 min-h-[44px] rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors duration-150"
                           style={{
                             background: downloadingReport ? 'rgba(23,20,79,0.5)' : '#17144F',
                             color: '#EDF0F7',
@@ -962,7 +1290,7 @@ export function Demo() {
 
                     {/* Reasons */}
                     <div
-                      className="rounded-xl p-6"
+                      className="min-w-0 rounded-xl p-6"
                       style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
                     >
                       <h2
@@ -976,7 +1304,7 @@ export function Demo() {
 
                     {/* Fund-flow graph */}
                     <div
-                      className="rounded-xl p-6"
+                      className="min-w-0 rounded-xl p-6"
                       style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
                     >
                       <h2
@@ -1001,11 +1329,294 @@ export function Demo() {
                     </div>
                   </div>
 
+                  {/* 3) What would change this score? (Explainability / Counterfactuals) */}
+                  <div
+                    className="min-w-0 rounded-xl p-6"
+                    style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <h2
+                        className="text-base font-bold"
+                        style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                      >
+                        What would change this score?
+                      </h2>
+                      {result.data_mode === 'fixture' && (
+                        <span
+                          className="text-xs px-2.5 py-0.5 rounded font-mono"
+                          style={{
+                            background: 'rgba(242,169,59,0.16)',
+                            color: '#8C5808',
+                            fontFamily: 'DM Mono, monospace',
+                          }}
+                        >
+                          What-if (fake demo data)
+                        </span>
+                      )}
+                    </div>
+
+                    {isNetworkFallback ? (
+                      <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                        Disabled in offline Demo data mode — start the backend API to run counterfactual analysis.
+                      </p>
+                    ) : explainLoading ? (
+                      <div className="flex items-center gap-2 text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                        <Loader2 size={14} className={reduced ? '' : 'animate-spin'} aria-hidden="true" />
+                        Loading counterfactuals…
+                      </div>
+                    ) : explainError ? (
+                      <p className="text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                        {explainError}
+                      </p>
+                    ) : explainData ? (
+                      <div className="space-y-4">
+                        {explainData.band_gap?.next_band && (
+                          <div className="text-xs font-mono" style={{ color: '#17144F', fontFamily: 'DM Mono, monospace' }}>
+                            {explainData.band_gap.points_needed} points to reach {explainData.band_gap.next_band}
+                          </div>
+                        )}
+                        {explainData.counterfactuals.length === 0 ? (
+                          <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                            No single-rule counterfactuals change this score.
+                          </p>
+                        ) : (
+                          <ul className="space-y-3" aria-label="Counterfactual scenarios">
+                            {explainData.counterfactuals.map(item => (
+                              <li key={item.without_code} className="space-y-1">
+                                <div className="flex items-center justify-between text-xs font-mono" style={{ fontFamily: 'DM Mono, monospace' }}>
+                                  <span style={{ color: '#17144F' }}>
+                                    Without {item.without_code}: {item.score_without} ({item.band_without})
+                                  </span>
+                                  <span style={{ color: bandTextColor(item.band_without) }} className="font-semibold">
+                                    {item.score_without}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 rounded-full" style={{ background: 'rgba(23,20,79,0.08)' }}>
+                                  <div
+                                    className="h-1.5 rounded-full"
+                                    style={{
+                                      width: `${Math.min(100, Math.max(2, item.score_without))}%`,
+                                      background: bandBarColor(item.band_without),
+                                    }}
+                                  />
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* 4) Verify report & 5) Analyst review (shown after a report exists) */}
+                  {reportId && (
+                    <div className="grid lg:grid-cols-2 gap-6">
+                      {/* Verify report */}
+                      <div
+                        className="min-w-0 rounded-xl p-6"
+                        style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
+                      >
+                        <h2
+                          className="text-base font-bold mb-2"
+                          style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                        >
+                          Verify report
+                        </h2>
+                        <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
+                          Verify the API-issued report hash on the server, or simulate a 1-point tamper check.
+                        </p>
+
+                        {isNetworkFallback ? (
+                          <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                            Disabled in offline Demo data mode — start the backend API to verify reports.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={verifyLoading || !reportSha256}
+                                onClick={() => handleVerifyReport(false)}
+                                className="px-4 py-2 min-h-[44px] rounded-lg text-xs font-semibold transition-colors duration-150"
+                                style={{
+                                  background: '#17144F',
+                                  color: '#EDF0F7',
+                                  border: 'none',
+                                  cursor: verifyLoading || !reportSha256 ? 'not-allowed' : 'pointer',
+                                  fontFamily: 'Syne Variable, Syne, sans-serif',
+                                }}
+                              >
+                                Verify
+                              </button>
+                              <button
+                                type="button"
+                                disabled={verifyLoading || !reportSha256}
+                                onClick={() => handleVerifyReport(true)}
+                                className="px-4 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
+                                style={{
+                                  borderColor: '#E2554F',
+                                  color: '#B8332E',
+                                  background: '#fff',
+                                  cursor: verifyLoading || !reportSha256 ? 'not-allowed' : 'pointer',
+                                  fontFamily: 'DM Mono, monospace',
+                                }}
+                              >
+                                Tamper test
+                              </button>
+                            </div>
+
+                            {verifyResult && (
+                              <div
+                                className="mt-4 p-3 rounded-lg text-xs font-mono"
+                                style={{
+                                  background: verifyResult.valid ? 'rgba(29,156,134,0.1)' : 'rgba(226,85,79,0.1)',
+                                  color: verifyResult.valid ? '#147564' : '#B8332E',
+                                  fontFamily: 'DM Mono, monospace',
+                                }}
+                                role="status"
+                              >
+                                <div className="font-semibold">
+                                  {verifyResult.valid ? 'Hash matches' : 'Hash does NOT match'}
+                                  {verifyIsTamper ? ' (tamper test: score altered by 1)' : ''}
+                                </div>
+                                {verifyResult.computed_sha256 && (
+                                  <div className="mt-1 break-all">computed: {verifyResult.computed_sha256}</div>
+                                )}
+                              </div>
+                            )}
+
+                            {verifyError && (
+                              <p className="mt-3 text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                                {verifyError}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Analyst review */}
+                      <div
+                        className="min-w-0 rounded-xl p-6"
+                        style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <h2
+                            className="text-base font-bold"
+                            style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                          >
+                            Analyst review
+                          </h2>
+                          <span
+                            className="px-2.5 py-0.5 rounded text-xs font-mono"
+                            style={{
+                              background:
+                                currentDecision === 'approved'
+                                  ? 'rgba(29,156,134,0.12)'
+                                  : currentDecision === 'rejected'
+                                    ? 'rgba(226,85,79,0.12)'
+                                    : 'rgba(242,169,59,0.18)',
+                              color:
+                                currentDecision === 'approved'
+                                  ? '#147564'
+                                  : currentDecision === 'rejected'
+                                    ? '#B8332E'
+                                    : '#8C5808',
+                              fontFamily: 'DM Mono, monospace',
+                            }}
+                            role="status"
+                          >
+                            {currentDecision === 'pending' ? 'Pending review' : currentDecision}
+                            {approval?.analyst_name ? ` · ${approval.analyst_name}` : ''}
+                            {approval?.decided_at || approval?.timestamp
+                              ? ` · ${new Date(approval.decided_at ?? approval.timestamp ?? '').toLocaleTimeString()}`
+                              : ''}
+                          </span>
+                        </div>
+
+                        <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
+                          Draft report. A human compliance officer decides.
+                        </p>
+
+                        {isNetworkFallback ? (
+                          <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                            Disabled in offline Demo data mode — start the backend API to record analyst review.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="grid sm:grid-cols-2 gap-3">
+                              <input
+                                type="text"
+                                value={analystName}
+                                onChange={e => setAnalystName(e.target.value)}
+                                placeholder="Analyst name"
+                                aria-label="Analyst name"
+                                className="min-h-[44px] rounded-lg px-3 py-2 text-xs border"
+                                style={{
+                                  background: '#fff',
+                                  borderColor: 'rgba(23,20,79,0.18)',
+                                  color: '#17144F',
+                                  fontFamily: 'DM Mono, monospace',
+                                }}
+                              />
+                              <input
+                                type="text"
+                                value={reviewNote}
+                                onChange={e => setReviewNote(e.target.value)}
+                                placeholder="Optional note"
+                                aria-label="Review note"
+                                className="min-h-[44px] rounded-lg px-3 py-2 text-xs border"
+                                style={{
+                                  background: '#fff',
+                                  borderColor: 'rgba(23,20,79,0.18)',
+                                  color: '#17144F',
+                                  fontFamily: 'DM Mono, monospace',
+                                }}
+                              />
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {(
+                                [
+                                  { id: 'approved', label: 'Approved' },
+                                  { id: 'rejected', label: 'Rejected' },
+                                  { id: 'needs_review', label: 'Needs review' },
+                                ] as const
+                              ).map(btn => (
+                                <button
+                                  key={btn.id}
+                                  type="button"
+                                  disabled={approvalLoading}
+                                  onClick={() => handleApprove(btn.id)}
+                                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
+                                  style={{
+                                    background: currentDecision === btn.id ? '#17144F' : '#EDF0F7',
+                                    color: currentDecision === btn.id ? '#EDF0F7' : '#17144F',
+                                    borderColor: currentDecision === btn.id ? '#17144F' : 'rgba(23,20,79,0.18)',
+                                    cursor: approvalLoading ? 'not-allowed' : 'pointer',
+                                    fontFamily: 'DM Mono, monospace',
+                                  }}
+                                >
+                                  {btn.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            {approvalError && (
+                              <p className="text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                                {approvalError}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Feedback + Attestation panels */}
                   <div className="grid lg:grid-cols-2 gap-6">
                     {/* Feedback */}
                     <div
-                      className="rounded-xl p-6"
+                      className="min-w-0 rounded-xl p-6"
                       style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
                     >
                       <h2
@@ -1017,58 +1628,66 @@ export function Demo() {
                       <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
                         Record whether this screening outcome matches your analyst review.
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {(
-                          [
-                            { id: 'true_positive', label: 'True positive' },
-                            { id: 'false_positive', label: 'False positive' },
-                            { id: 'unsure', label: 'Unsure' },
-                          ] as const
-                        ).map(btn => {
-                          const selected = feedbackSent === btn.id;
-                          return (
-                            <button
-                              key={btn.id}
-                              type="button"
-                              disabled={submittingFeedback}
-                              onClick={() => handleFeedback(btn.id)}
-                              className="px-3.5 py-2 rounded-lg text-xs font-mono border transition-colors duration-150"
-                              style={{
-                                background: selected ? '#17144F' : '#EDF0F7',
-                                color: selected ? '#EDF0F7' : '#17144F',
-                                borderColor: selected ? '#17144F' : 'rgba(23,20,79,0.18)',
-                                cursor: submittingFeedback ? 'not-allowed' : 'pointer',
-                                fontFamily: 'DM Mono, monospace',
-                              }}
-                            >
-                              {btn.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {feedbackSent && (
-                        <p className="mt-3 text-xs font-mono" style={{ color: '#147564', fontFamily: 'DM Mono, monospace' }} role="status">
-                          Feedback recorded ({feedbackSent.replace('_', ' ')})
+                      {isNetworkFallback ? (
+                        <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                          Disabled in offline Demo data mode — start the backend API to submit feedback.
                         </p>
-                      )}
-                      {feedbackError && (
-                        <p className="mt-3 text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
-                          {feedbackError}
-                        </p>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap gap-2">
+                            {(
+                              [
+                                { id: 'true_positive', label: 'True positive' },
+                                { id: 'false_positive', label: 'False positive' },
+                                { id: 'unsure', label: 'Unsure' },
+                              ] as const
+                            ).map(btn => {
+                              const selected = feedbackSent === btn.id;
+                              return (
+                                <button
+                                  key={btn.id}
+                                  type="button"
+                                  disabled={submittingFeedback}
+                                  onClick={() => handleFeedback(btn.id)}
+                                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
+                                  style={{
+                                    background: selected ? '#17144F' : '#EDF0F7',
+                                    color: selected ? '#EDF0F7' : '#17144F',
+                                    borderColor: selected ? '#17144F' : 'rgba(23,20,79,0.18)',
+                                    cursor: submittingFeedback ? 'not-allowed' : 'pointer',
+                                    fontFamily: 'DM Mono, monospace',
+                                  }}
+                                >
+                                  {btn.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {feedbackSent && (
+                            <p className="mt-3 text-xs font-mono" style={{ color: '#147564', fontFamily: 'DM Mono, monospace' }} role="status">
+                              Feedback recorded ({feedbackSent.replace('_', ' ')})
+                            </p>
+                          )}
+                          {feedbackError && (
+                            <p className="mt-3 text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                              {feedbackError}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
 
                     {/* Attestation panel */}
                     <div
-                      className="rounded-xl p-6"
+                      className="min-w-0 rounded-xl p-6"
                       style={{ background: '#17144F', color: '#EDF0F7' }}
                     >
-                      <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                         <h2
                           className="text-base font-bold"
                           style={{ color: '#EDF0F7', fontFamily: 'Syne Variable, Syne, sans-serif' }}
                         >
-                          On-chain attestation
+                          Local attestation
                         </h2>
                         <span
                           className="px-2.5 py-0.5 rounded text-xs font-mono"
@@ -1078,56 +1697,59 @@ export function Demo() {
                             fontFamily: 'DM Mono, monospace',
                           }}
                         >
-                          Testnet demo
+                          LOCAL DEMO - not legal proof
                         </span>
                       </div>
 
-                      {reportSha256 ? (
-                        <div className="mb-4">
-                          <div className="text-xs mb-1" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
-                            Report SHA-256 (from API)
-                          </div>
-                          <div className="flex items-center gap-2">
+                      {reportHash ? (
+                        <div className="space-y-4">
+                          <div>
+                            <div className="text-xs mb-1" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
+                              Report data hash
+                            </div>
                             <code
-                              className="flex-1 text-xs p-2 rounded break-all"
+                              className="block text-xs p-2 rounded break-all"
                               style={{ background: 'rgba(255,255,255,0.08)', color: '#F2A93B', fontFamily: 'DM Mono, monospace' }}
                             >
-                              0x{reportSha256}
+                              {reportHash}
                             </code>
-                            <button
-                              type="button"
-                              onClick={handleCopyHash}
-                              className="p-2 rounded border shrink-0"
-                              style={{
-                                borderColor: 'rgba(237,240,247,0.25)',
-                                background: 'transparent',
-                                color: '#EDF0F7',
-                                cursor: 'pointer',
-                              }}
-                              aria-label="Copy report SHA-256 hash"
-                            >
-                              {copiedHash ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-                            </button>
+                          </div>
+
+                          <div>
+                            <div className="text-xs mb-1" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
+                              Local demo attestation command
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <code
+                                className="flex-1 text-xs p-2 rounded break-all"
+                                style={{ background: 'rgba(255,255,255,0.08)', color: '#F2A93B', fontFamily: 'DM Mono, monospace' }}
+                              >
+                                {attestCmd}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={handleCopyAttestCmd}
+                                className="px-3 py-2 min-h-[44px] min-w-[44px] rounded border shrink-0 text-xs font-mono inline-flex items-center justify-center gap-1.5"
+                                style={{
+                                  borderColor: 'rgba(237,240,247,0.25)',
+                                  background: 'transparent',
+                                  color: '#EDF0F7',
+                                  cursor: 'pointer',
+                                  fontFamily: 'DM Mono, monospace',
+                                }}
+                                aria-label="Copy local attestation command"
+                              >
+                                {copiedAttestCmd ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                                <span>{copiedAttestCmd ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ) : (
-                        <p className="text-xs mb-4" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
-                          Download the PDF report to retrieve the API-issued SHA-256 hash.
+                        <p className="text-xs" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
+                          Create a report first
                         </p>
                       )}
-
-                      <div className="text-xs mb-1.5" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
-                        Local Hardhat attestation commands (contracts/)
-                      </div>
-                      <pre
-                        className="text-xs p-3 rounded overflow-x-auto leading-relaxed"
-                        style={{ background: '#0F0D3A', color: 'rgba(237,240,247,0.88)', fontFamily: 'DM Mono, monospace', margin: 0 }}
-                      >
-                        <code>{`cd contracts
-npx hardhat node
-npx hardhat run scripts/deploy.js --network localhost
-npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${reportSha256}` : '<hex_report_SHA_256>'} ${bandToInt(result.band)}`}</code>
-                      </pre>
                     </div>
                   </div>
                 </div>
@@ -1137,7 +1759,7 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
 
           {/* ── BATCH CSV TAB ──────────────────────────────────────────────── */}
           {activeTab === 'batch' && (
-            <div role="tabpanel" aria-label="Batch CSV screening" className="space-y-6">
+            <div id="panel-batch" role="tabpanel" aria-labelledby="tab-batch" className="space-y-6">
               <div
                 className="rounded-xl p-6"
                 style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
@@ -1157,7 +1779,7 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
 
                   <div className="flex flex-wrap gap-3">
                     <label
-                      className="px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2 cursor-pointer"
+                      className="px-4 py-2 min-h-[44px] rounded-lg text-xs font-semibold inline-flex items-center gap-2 cursor-pointer"
                       style={{
                         background: '#17144F',
                         color: '#EDF0F7',
@@ -1178,7 +1800,7 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
                       type="button"
                       onClick={() => runBatchCsv(SAMPLE_CSV)}
                       disabled={batchLoading}
-                      className="px-4 py-2 rounded-lg text-xs font-mono border"
+                      className="px-4 py-2 min-h-[44px] rounded-lg text-xs font-mono border"
                       style={{
                         borderColor: 'rgba(23,20,79,0.25)',
                         background: '#EDF0F7',
@@ -1242,19 +1864,19 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
                       <span
                         className="px-2.5 py-0.5 rounded text-xs font-mono"
                         style={
-                          batchHasFixture
+                          batchNotice
                             ? { background: 'rgba(242,169,59,0.18)', color: '#8C5808', fontFamily: 'DM Mono, monospace' }
                             : { background: 'rgba(29,156,134,0.12)', color: '#147564', fontFamily: 'DM Mono, monospace' }
                         }
                       >
-                        {batchHasFixture ? 'Demo data' : 'Live data'}
+                        {batchNotice ? 'Demo data' : 'API response'}
                       </span>
                     </div>
 
                     <button
                       type="button"
                       onClick={downloadBatchCsv}
-                      className="px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-2"
+                      className="px-4 py-2 min-h-[44px] rounded-lg text-xs font-semibold inline-flex items-center gap-2"
                       style={{
                         background: '#F2A93B',
                         color: '#17144F',
@@ -1268,7 +1890,7 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
                     </button>
                   </div>
 
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto max-w-full">
                     <table className="w-full text-left border-collapse text-xs font-mono" style={{ fontFamily: 'DM Mono, monospace' }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid rgba(23,20,79,0.12)', color: '#5B6178' }}>
@@ -1276,21 +1898,44 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
                           <th className="py-2 pr-4">Score</th>
                           <th className="py-2 pr-4">Band</th>
                           <th className="py-2 pr-4">Sanctions</th>
-                          <th className="py-2 pr-4">Top reason</th>
-                          <th className="py-2">Mode</th>
+                          <th className="py-2">Top reason</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {batchResults.map((row, i) => (
-                          <tr key={`${row.address}-${i}`} style={{ borderBottom: '1px solid rgba(23,20,79,0.06)', color: '#17144F' }}>
-                            <td className="py-2.5 pr-4 break-all">{row.address}</td>
-                            <td className="py-2.5 pr-4 font-bold tabular-nums">{row.score ?? '—'}</td>
-                            <td className="py-2.5 pr-4">{row.band}</td>
-                            <td className="py-2.5 pr-4">{String(row.sanctions_hit)}</td>
-                            <td className="py-2.5 pr-4">{row.error ?? row.top_reason}</td>
-                            <td className="py-2.5">{row.data_mode === 'fixture' ? 'Demo data' : 'Live data'}</td>
-                          </tr>
-                        ))}
+                        {batchResults.map((row, i) => {
+                          if (isBatchErrorRow(row)) {
+                            return (
+                              <tr key={`${row.address}-${i}`} style={{ borderBottom: '1px solid rgba(23,20,79,0.06)' }}>
+                                <td className="py-2.5 pr-4 break-all" style={{ color: '#17144F' }}>{row.address}</td>
+                                <td className="py-2.5 pr-4" style={{ color: '#5B6178' }}>—</td>
+                                <td className="py-2.5 pr-4" style={{ color: '#B8332E' }}>error</td>
+                                <td className="py-2.5 pr-4" style={{ color: '#5B6178' }}>—</td>
+                                <td className="py-2.5" style={{ color: '#B8332E' }} role="alert">
+                                  {row.error.message || row.error.error}
+                                </td>
+                              </tr>
+                            );
+                          }
+                          return (
+                            <tr key={`${row.address}-${i}`} style={{ borderBottom: '1px solid rgba(23,20,79,0.06)', color: '#17144F' }}>
+                              <td className="py-2.5 pr-4 break-all">{row.address}</td>
+                              <td className="py-2.5 pr-4 font-bold tabular-nums">{row.score}</td>
+                              <td className="py-2.5 pr-4">{row.band}</td>
+                              <td className="py-2.5 pr-4">
+                                <span
+                                  className="inline-block px-2 py-0.5 rounded"
+                                  style={{
+                                    background: row.sanctions_hit ? 'rgba(226,85,79,0.12)' : 'rgba(29,156,134,0.12)',
+                                    color: row.sanctions_hit ? '#B8332E' : '#147564',
+                                  }}
+                                >
+                                  {row.sanctions_hit ? 'hit' : 'clear'}
+                                </span>
+                              </td>
+                              <td className="py-2.5">{row.top_reason_code}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1312,7 +1957,7 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
                 API quota usage
               </h2>
               <span className="text-xs font-mono tabular-nums" style={{ color: '#17144F', fontFamily: 'DM Mono, monospace' }}>
-                {checksUsed} / {QUOTA}
+                {checksUsed} / {quota}
               </span>
             </div>
             <div
@@ -1322,7 +1967,7 @@ npx hardhat run scripts/attest.js --network localhost ${reportSha256 ? `0x${repo
               aria-label="API checks used"
               aria-valuenow={checksUsed}
               aria-valuemin={0}
-              aria-valuemax={QUOTA}
+              aria-valuemax={quota}
             >
               <div
                 className="h-2 rounded-full"

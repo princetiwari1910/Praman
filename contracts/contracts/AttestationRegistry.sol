@@ -14,13 +14,13 @@ contract AttestationRegistry {
     mapping(bytes32 => Attestation) public attestations;
 
     // Attestor a report hash with a band. Reverts if already attested.
+    // band must be 0-3, otherwise revert.
     function attest(bytes32 reportHash, uint8 band) external {
-        require(band >= 1 && band <= 4, "Invalid band");
+        require(band >= 0 && band <= 3, "Invalid band");
         require(reportHash != bytes32(0), "Empty hash");
 
         // Revert if already attested for this hash
-        require(attestations[reportHash].attester == address(0) || 
-            block.number < block.number, "Already attested");
+        require(attestations[reportHash].attester == address(0), "Already attested");
 
         attestations[reportHash] = Attestation({
             attester: msg.sender,
@@ -33,7 +33,7 @@ contract AttestationRegistry {
 
     // View function to get attestation data
     function get(bytes32 reportHash) external view returns (address attester, uint256 timestamp, uint8 band) {
-        Attestation memory storage storage att = attestations[reportHash];
+        Attestation storage att = attestations[reportHash];
         attester = att.attester;
         timestamp = att.timestamp;
         band = att.band;
