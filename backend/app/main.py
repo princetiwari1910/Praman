@@ -58,19 +58,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Praman B2B Crypto Wallet Risk Screening API", version="0.1.0", lifespan=lifespan)
 
-# CORS – only the dev fronts
+# CORS configuration
+default_cors_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://praman.princetiwari.tech",
+    "https://praman-kljk.onrender.com",
+]
 cors_origins_env = os.getenv("CORS_ORIGINS", "")
-cors_origins_raw = [o.strip().rstrip("/") for o in cors_origins_env.split(",") if o.strip()]
-default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-allow_origins = default_origins + cors_origins_raw
+parsed_origins = [o.strip().rstrip("/") for o in cors_origins_env.split(",") if o.strip()]
+allow_origins = parsed_origins if parsed_origins else default_cors_origins
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    expose_headers=["X-Report-SHA256"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization", "Accept", "X-Request-ID"],
+    expose_headers=["X-Report-SHA256", "X-Request-ID"],
 )
 
 

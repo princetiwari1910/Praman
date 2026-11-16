@@ -24,15 +24,12 @@ import type {
   VerifyReportResponse,
   ApprovalResponse,
   ApprovalDecision,
-  ApiErrorResponse,
 } from '@/types/api';
 import { BRAND } from '@/constants/brand';
 import { Footer } from '@/components/Footer';
 import { DemoGraph } from '@/components/DemoGraph';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-
-const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
-const API_KEY = (import.meta.env.VITE_API_KEY as string | undefined)?.trim() ?? '';
+import { API_BASE_URL as BASE, API_KEY, apiFetch, parseErrorMessage } from '@/lib/api';
 
 const CHAIN = 'ethereum' as const;
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -40,19 +37,6 @@ const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const CLEAN_TEST_ADDRESS = '0x1111111111111111111111111111111111111111';
 const HIGH_RISK_TEST_ADDRESS = '0x2222222222222222222222222222222222222222';
 const SAMPLE_CSV = `address\n${CLEAN_TEST_ADDRESS}\n${HIGH_RISK_TEST_ADDRESS}\n0x3333333333333333333333333333333333333333\n`;
-
-async function apiFetch(url: string, options: RequestInit = {}, timeoutMs = 10_000): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function scoreColor(score: number): string {
@@ -82,24 +66,6 @@ function bandLabel(band: string): string {
 
 function isBatchErrorRow(row: BatchFlatRow): row is BatchErrorRow {
   return 'error' in row && row.error !== undefined;
-}
-
-async function parseErrorMessage(res: Response, checksUsed: number, quota: number | null): Promise<string> {
-  let apiText = `Request failed with status ${res.status}`;
-  try {
-    const body = (await res.json()) as Partial<ApiErrorResponse>;
-    if (body.message) {
-      apiText = body.error ? `${body.error}: ${body.message}` : body.message;
-    }
-  } catch {
-    // Non-JSON response
-  }
-
-  if (res.status === 400) return `Invalid address or request — ${apiText}`;
-  if (res.status === 401) return `API key missing or wrong — ${apiText}`;
-  if (res.status === 422) return `Validation error — ${apiText}`;
-  if (res.status === 429) return `Quota reached (${checksUsed}${quota !== null ? ` / ${quota}` : ''}) — ${apiText}`;
-  return apiText;
 }
 
 function fixtureForAddress(addr: string): RiskResult {
@@ -360,8 +326,8 @@ export function Demo() {
 
   useEffect(() => {
     // Cold start silent warm-up (no key, errors ignored)
-    fetch(`${BASE}/health`).catch(() => {});
-    fetch(`${BASE}/v1/health`)
+    apiFetch(`${BASE}/health`).catch(() => {});
+    apiFetch(`${BASE}/v1/health`)
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (data && typeof data.quota === 'number' && data.quota > 0) {
