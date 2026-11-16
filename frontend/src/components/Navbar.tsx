@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { BRAND } from '@/constants/brand';
+import { useAuth } from '@/context/AuthContext';
 
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const isDemo = location.pathname === '/demo';
+  const { user, isAuthenticated, logout, openAuthModal } = useAuth();
 
   return (
     <header
@@ -50,6 +53,74 @@ export function Navbar() {
               </a>
             </>
           )}
+          {isAuthenticated && user ? (
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen((o) => !o)}
+                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full text-xs transition-colors border"
+                style={{
+                  background: 'rgba(237, 240, 247, 0.06)',
+                  borderColor: 'rgba(237, 240, 247, 0.15)',
+                  color: '#EDF0F7',
+                }}
+              >
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt={user.full_name || user.email}
+                    className="w-5 h-5 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+                    style={{ background: '#F2A93B', color: '#17144F' }}
+                  >
+                    {(user.full_name || user.email)[0].toUpperCase()}
+                  </div>
+                )}
+                <span className="max-w-[120px] truncate font-medium">
+                  {user.full_name || user.email.split('@')[0]}
+                </span>
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  className="absolute right-0 mt-2 w-48 rounded-xl shadow-xl border py-1.5 z-50 text-xs"
+                  style={{
+                    background: '#17144F',
+                    borderColor: 'rgba(237, 240, 247, 0.12)',
+                    color: '#EDF0F7',
+                    fontFamily: 'DM Mono, monospace',
+                  }}
+                >
+                  <div className="px-3 py-2 border-b border-white/10">
+                    <p className="text-[10px] text-slate-400">Signed in as</p>
+                    <p className="font-semibold truncate">{user.email}</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setUserMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-white/5 text-red-300 transition-colors"
+                  >
+                    <LogOut size={13} />
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => openAuthModal('login')}
+              className="text-sm min-h-[44px] px-3 inline-flex items-center gap-1.5 font-medium transition-colors"
+              style={{ color: '#EDF0F7' }}
+            >
+              <LogIn size={15} className="text-amber-400" />
+              <span>Sign in</span>
+            </button>
+          )}
+
           <button
             onClick={() => navigate(isDemo ? '/' : '/demo')}
             className="px-5 py-2 min-h-[44px] rounded text-sm font-semibold transition-all duration-150 inline-flex items-center"
@@ -88,6 +159,39 @@ export function Navbar() {
           <a href="#how-it-works" className="min-h-[44px] flex items-center text-sm" style={{ color: 'rgba(237,240,247,0.85)' }} onClick={() => setMenuOpen(false)}>How it works</a>
           <a href="#developer" className="min-h-[44px] flex items-center text-sm" style={{ color: 'rgba(237,240,247,0.85)' }} onClick={() => setMenuOpen(false)}>Developer</a>
           <a href="#faq" className="min-h-[44px] flex items-center text-sm" style={{ color: 'rgba(237,240,247,0.85)' }} onClick={() => setMenuOpen(false)}>FAQ</a>
+          
+          <div className="pt-2 border-t border-white/10">
+            {isAuthenticated && user ? (
+              <div className="space-y-2">
+                <div className="text-xs text-slate-300 flex items-center gap-2 py-1">
+                  <UserIcon size={14} className="text-amber-400" />
+                  <span className="truncate">{user.email}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    logout();
+                    setMenuOpen(false);
+                  }}
+                  className="w-full min-h-[40px] py-2 rounded text-xs font-semibold flex items-center justify-center gap-2 border border-red-400/30 text-red-300"
+                >
+                  <LogOut size={13} />
+                  <span>Sign out</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  openAuthModal('login');
+                  setMenuOpen(false);
+                }}
+                className="w-full min-h-[44px] py-2.5 rounded text-xs font-semibold flex items-center justify-center gap-2 border border-white/20 text-white mb-2"
+              >
+                <LogIn size={14} className="text-amber-400" />
+                <span>Sign in</span>
+              </button>
+            )}
+          </div>
+
           <button
             onClick={() => { navigate('/demo'); setMenuOpen(false); }}
             className="w-full min-h-[44px] py-3 rounded text-sm font-semibold"

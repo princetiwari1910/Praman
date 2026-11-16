@@ -16,6 +16,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.state import usage, reports, reset
 from app.dependencies import require_api_key
 from app.routers.risk import router as risk_router
+from app.routers.auth import router as auth_router
+from app.auth.db import init_db
 from app.engine.sanctions import info as sanctions_info
 
 
@@ -29,6 +31,9 @@ def load_config():
 config = load_config()
 
 async def lifespan(app: FastAPI):
+    # Initialize Auth DB
+    init_db()
+
     # Mode
     use_live = os.getenv("USE_FIXTURES", "false").lower() == "false"
     etherscan_key = os.getenv("ETHERSCAN_API_KEY")
@@ -167,9 +172,10 @@ async def print_startup_info():
         f.write(f"mode={mode} quota={quota} keys={num_keys} sanctions_count={sanctions_count} using_sample={using_sample} {etherscan_status}\n")
 
 # ============================================================
-# Include the risk router with require_api_key dependency
+# Include routers
 # ============================================================
 
+app.include_router(auth_router)
 app.include_router(risk_router, dependencies=[Depends(require_api_key)])
 
 

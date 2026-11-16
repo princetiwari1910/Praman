@@ -4,6 +4,8 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import { Landing } from '@/pages/Landing';
 import { NotFound } from '@/pages/NotFound';
 import { Navbar } from '@/components/Navbar';
+import { AuthModal } from '@/components/AuthModal';
+import { AuthProvider } from '@/context/AuthContext';
 import { useLenis } from '@/hooks/useLenis';
 import { useScrollProgress } from '@/hooks/useScrollProgress';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -65,19 +67,22 @@ export function App() {
   const progressRef = useScrollProgress();
 
   return (
-    <MotionConfig reducedMotion="user">
-      <div
-        id="scroll-progress"
-        ref={progressRef}
-        role="progressbar"
-        aria-label="Page scroll progress"
-        aria-valuenow={0}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      />
+    <AuthProvider>
+      <MotionConfig reducedMotion="user">
+        <div
+          id="scroll-progress"
+          ref={progressRef}
+          role="progressbar"
+          aria-label="Page scroll progress"
+          aria-valuenow={0}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        />
 
-      <Navbar />
-      <AppRoutes />
-    </MotionConfig>
+        <Navbar />
+        <AppRoutes />
+        <AuthModal />
+      </MotionConfig>
+    </AuthProvider>
   );
 }

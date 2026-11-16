@@ -57,6 +57,11 @@ export async function apiFetch(
     headers.set('X-API-Key', apiKey);
   }
 
+  const token = typeof window !== 'undefined' ? localStorage.getItem('praman_auth_token') : null;
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -94,4 +99,56 @@ export async function parseErrorMessage(
   if (res.status === 422) return `Validation error — ${apiText}`;
   if (res.status === 429) return `Quota reached (${checksUsed}${quota !== null ? ` / ${quota}` : ''}) — ${apiText}`;
   return apiText;
+}
+
+/**
+ * Authentication API helpers
+ */
+export async function apiRegister(email: string, password: string, fullName?: string) {
+  const res = await apiFetch('/v1/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, full_name: fullName }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Registration failed');
+  }
+  return res.json();
+}
+
+export async function apiLogin(email: string, password: string) {
+  const res = await apiFetch('/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Login failed');
+  }
+  return res.json();
+}
+
+export async function apiGoogleAuth(credential: string) {
+  const res = await apiFetch('/v1/auth/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Google authentication failed');
+  }
+  return res.json();
+}
+
+export async function apiGetMe() {
+  const res = await apiFetch('/v1/auth/me', {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    throw new Error('Not authenticated');
+  }
+  return res.json();
 }
