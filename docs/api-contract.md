@@ -74,7 +74,31 @@ Return the four risk bands from thresholds.json.
 }
 ```
 
-#### POST /v1/batch
+
+#### GET /v1/health
+No authentication required.
+
+**Response (200):**
+```json
+{
+  "status": "ok",
+  "data_mode": "fixture" or "live",
+  "quota": <QUOTA>
+}
+
+data_mode is "fixture" unless `USE_FIXTURES` is `"false"` and a live fetch is configured. No usage counting, no audit entry.
+
+#### POST /v1/dev/reset
+**Authentication:** Requires `X-API-Key` header.
+
+Only when `DEMO_MODE` is `"true"`:
+- Clears in-memory usage, reports, and approvals
+- Truncates the audit log file and `approvals.jsonl`
+- Returns `{"status":"reset"}`
+
+When `DEMO_MODE` is not `"true"`: returns 404 `{"error":"not_found","message":"Not found"}` in the standard error shape.
+
+#### POST /v1/batch#### POST /v1/batch
 Process a CSV file of wallet addresses.
 
 **Authentication:** Requires `X-API-Key` header.
@@ -255,7 +279,7 @@ All errors return exactly `{"error": "<code>", "message": "<text>"}`:
 | 500 | `internal_error` | Unexpected server error |
 
 ### CORS
-- `expose_headers=["X-Report-SHA256"]`
+- `expose_headers=["X-Report-SHA256", "X-Request-ID"]`
 - Allowed origins: `http://localhost:5173`, `http://127.0.0.1:5173`, `http://127.0.0.1:3000`
 
 ### PDF Footer

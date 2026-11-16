@@ -31,19 +31,28 @@ import { Footer } from '@/components/Footer';
 import { DemoGraph } from '@/components/DemoGraph';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
-const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? '';
-const API_V1_BASE = RAW_API_BASE
-  ? `${RAW_API_BASE.replace(/\/+$/, '').replace(/\/v1$/, '')}/v1`
-  : '';
+const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 const API_KEY = (import.meta.env.VITE_API_KEY as string | undefined)?.trim() ?? '';
 
 const CHAIN = 'ethereum' as const;
-const QUOTA = 100;
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 const CLEAN_TEST_ADDRESS = '0x1111111111111111111111111111111111111111';
 const HIGH_RISK_TEST_ADDRESS = '0x2222222222222222222222222222222222222222';
 const SAMPLE_CSV = `address\n${CLEAN_TEST_ADDRESS}\n${HIGH_RISK_TEST_ADDRESS}\n0x3333333333333333333333333333333333333333\n`;
+
+async function apiFetch(url: string, options: RequestInit = {}, timeoutMs = 10_000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function scoreColor(score: number): string {
@@ -75,7 +84,7 @@ function isBatchErrorRow(row: BatchFlatRow): row is BatchErrorRow {
   return 'error' in row && row.error !== undefined;
 }
 
-async function parseErrorMessage(res: Response, checksUsed: number, quota: number): Promise<string> {
+async function parseErrorMessage(res: Response, checksUsed: number, quota: number | null): Promise<string> {
   let apiText = `Request failed with status ${res.status}`;
   try {
     const body = (await res.json()) as Partial<ApiErrorResponse>;
@@ -89,7 +98,7 @@ async function parseErrorMessage(res: Response, checksUsed: number, quota: numbe
   if (res.status === 400) return `Invalid address or request — ${apiText}`;
   if (res.status === 401) return `API key missing or wrong — ${apiText}`;
   if (res.status === 422) return `Validation error — ${apiText}`;
-  if (res.status === 429) return `Quota reached (${checksUsed} / ${quota}) — ${apiText}`;
+  if (res.status === 429) return `Quota reached (${checksUsed}${quota !== null ? ` / ${quota}` : ''}) — ${apiText}`;
   return apiText;
 }
 
@@ -250,12 +259,15 @@ export function Demo() {
   const [result, setResult] = useState<RiskResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [networkNotice, setNetworkNotice] = useState<string | null>(null);
+  const [wakingUpBanner, setWakingUpBanner] = useState(false);
   const [isNetworkFallback, setIsNetworkFallback] = useState(false);
 
   // Usage & Config
   const [checksUsed, setChecksUsed] = useState<number>(0);
-  const [quota, setQuota] = useState<number>(QUOTA);
+  const [quota, setQuota] = useState<number | null>(null);
+
+  // Retry ref
+  const lastRetryRef = useRef<(() => void) | null>(null);
 
   // What-if / Explainability
   const [explainData, setExplainData] = useState<ExplainResponse | null>(null);
@@ -302,9 +314,8 @@ export function Demo() {
   const batchTabRef = useRef<HTMLButtonElement>(null);
 
   const fetchUsage = useCallback(async () => {
-    if (!API_V1_BASE) return;
     try {
-      const res = await fetch(`${API_V1_BASE}/usage`, {
+      const res = await apiFetch(`${BASE}/v1/usage`, {
         headers: {
           Accept: 'application/json',
           'X-API-Key': API_KEY,
@@ -324,9 +335,8 @@ export function Demo() {
   }, []);
 
   const fetchConfig = useCallback(async () => {
-    if (!API_V1_BASE) return;
     try {
-      const res = await fetch(`${API_V1_BASE}/config`, {
+      const res = await apiFetch(`${BASE}/v1/config`, {
         headers: {
           Accept: 'application/json',
           'X-API-Key': API_KEY,
@@ -343,16 +353,52 @@ export function Demo() {
   }, []);
 
   useEffect(() => {
+    // Cold start silent warm-up (no key, errors ignored)
+    fetch(`${BASE}/health`).catch(() => {});
+    fetch(`${BASE}/v1/health`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data && typeof data.quota === 'number' && data.quota > 0) {
+          setQuota(data.quota);
+        }
+      })
+      .catch(() => {});
     fetchConfig();
     fetchUsage();
   }, [fetchConfig, fetchUsage]);
 
+  async function ensureReportForAddress(currentResult: RiskResult): Promise<{ reportId: string; sha256: string } | null> {
+    if (!currentResult || isNetworkFallback) return null;
+    try {
+      const res = await apiFetch(`${BASE}/v1/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+        body: JSON.stringify({ address: currentResult.address, chain: CHAIN }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as ReportCreateResponse;
+      const cleanId = data.report_id?.trim();
+      const sha = data.sha256?.trim();
+      if (!cleanId) return null;
+      setReportId(cleanId);
+      setReportSha256(sha ?? null);
+      loadApprovalStatus(cleanId);
+      return { reportId: cleanId, sha256: sha ?? '' };
+    } catch {
+      return null;
+    }
+  }
+
   async function loadExplain(addr: string) {
-    if (!API_V1_BASE) return;
+    if (isNetworkFallback) return;
     setExplainLoading(true);
     setExplainError(null);
     try {
-      const res = await fetch(`${API_V1_BASE}/explain/${CHAIN}/${addr}`, {
+      const res = await apiFetch(`${BASE}/v1/explain/${CHAIN}/${addr}`, {
         headers: {
           Accept: 'application/json',
           'X-API-Key': API_KEY,
@@ -376,9 +422,9 @@ export function Demo() {
   }
 
   async function loadApprovalStatus(cleanId: string) {
-    if (!API_V1_BASE) return;
+    if (!cleanId || !cleanId.trim() || isNetworkFallback) return;
     try {
-      const res = await fetch(`${API_V1_BASE}/reports/${cleanId}/approval`, {
+      const res = await apiFetch(`${BASE}/v1/reports/${cleanId}/approval`, {
         headers: {
           Accept: 'application/json',
           'X-API-Key': API_KEY,
@@ -410,19 +456,11 @@ export function Demo() {
     }
   }
 
-  async function handleScreen(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = address.trim();
-
-    if (!ETH_ADDRESS_RE.test(trimmed)) {
-      setValidationError('Enter a valid Ethereum address (0x followed by 40 hex characters).');
-      return;
-    }
-
+  async function performScreen(trimmed: string) {
     setValidationError(null);
     setLoading(true);
     setError(null);
-    setNetworkNotice(null);
+    setWakingUpBanner(false);
     setIsNetworkFallback(false);
     setExplainData(null);
     setExplainError(null);
@@ -437,55 +475,66 @@ export function Demo() {
     setFeedbackError(null);
     setResult(null);
 
-    if (API_V1_BASE) {
-      try {
-        const res = await fetch(`${API_V1_BASE}/risk/${CHAIN}/${trimmed}`, {
-          headers: {
-            Accept: 'application/json',
-            'X-API-Key': API_KEY,
-          },
-        });
+    lastRetryRef.current = () => performScreen(trimmed);
 
-        if (!res.ok) {
-          const msg = await parseErrorMessage(res, checksUsed, quota);
-          setError(msg);
-          setLoading(false);
-          return;
-        }
+    try {
+      const res = await apiFetch(`${BASE}/v1/risk/${CHAIN}/${trimmed}`, {
+        headers: {
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+      });
 
-        const data = (await res.json()) as RiskResult;
-        if (import.meta.env.DEV) {
-          const weightSum = data.reasons.reduce((acc, r) => acc + Math.trunc(r.weight), 0);
-          const expected = Math.min(100, weightSum);
-          if (data.score !== expected) {
-            console.warn(
-              `[Praman] Score mismatch for ${data.address}: score=${data.score}, min(100, sum(weights))=${expected}`
-            );
-          }
-        }
-        setResult(data);
+      if (!res.ok) {
+        const msg = await parseErrorMessage(res, checksUsed, quota);
+        setError(msg);
         setLoading(false);
-        fetchUsage();
-        loadExplain(trimmed);
         return;
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : 'Network failure';
-        setNetworkNotice(`Backend unreachable (${reason}) — showing local fixture fallback.`);
       }
-    } else {
-      setNetworkNotice('API base URL is not configured — showing local fixture fallback.');
+
+      const data = (await res.json()) as RiskResult;
+      if (import.meta.env.DEV) {
+        const weightSum = data.reasons.reduce((acc, r) => acc + Math.trunc(r.weight), 0);
+        const expected = Math.min(100, weightSum);
+        if (data.score !== expected) {
+          console.warn(
+            `[Praman] Score mismatch for ${data.address}: score=${data.score}, min(100, sum(weights))=${expected}`
+          );
+        }
+      }
+      setWakingUpBanner(false);
+      setResult(data);
+      setLoading(false);
+      fetchUsage();
+      loadExplain(trimmed);
+      ensureReportForAddress(data);
+      return;
+    } catch {
+      setWakingUpBanner(true);
     }
 
     const fixture = fixtureForAddress(trimmed);
     setIsNetworkFallback(true);
-    setChecksUsed(prev => Math.min(quota, prev + 1));
+    setChecksUsed(prev => (quota !== null ? Math.min(quota, prev + 1) : prev + 1));
     setResult(fixture);
     setLoading(false);
   }
 
+  function handleScreen(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = address.trim();
+
+    if (!ETH_ADDRESS_RE.test(trimmed)) {
+      setValidationError('Enter a valid Ethereum address (0x followed by 40 hex characters).');
+      return;
+    }
+
+    performScreen(trimmed);
+  }
+
   async function handleDownloadReport() {
     if (!result) return;
-    if (!API_V1_BASE || isNetworkFallback) {
+    if (isNetworkFallback) {
       setReportError('PDF report generation requires a reachable backend API.');
       setReportSha256(null);
       setReportId(null);
@@ -494,46 +543,47 @@ export function Demo() {
 
     setDownloadingReport(true);
     setReportError(null);
-    setReportSha256(null);
-    setReportId(null);
-    setVerifyResult(null);
-    setVerifyError(null);
-    setApproval(null);
-    setApprovalError(null);
 
     try {
-      const createRes = await fetch(`${API_V1_BASE}/reports`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-API-Key': API_KEY,
-        },
-        body: JSON.stringify({ address: result.address, chain: CHAIN }),
-      });
+      let cleanId = reportId;
+      let sha = reportSha256;
 
-      if (!createRes.ok) {
-        setReportError(await parseErrorMessage(createRes, checksUsed, quota));
-        setReportSha256(null);
-        setDownloadingReport(false);
-        return;
+      if (!cleanId) {
+        const createRes = await apiFetch(`${BASE}/v1/reports`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-API-Key': API_KEY,
+          },
+          body: JSON.stringify({ address: result.address, chain: CHAIN }),
+        });
+
+        if (!createRes.ok) {
+          setReportError(await parseErrorMessage(createRes, checksUsed, quota));
+          setReportSha256(null);
+          setDownloadingReport(false);
+          return;
+        }
+
+        const createData = (await createRes.json()) as ReportCreateResponse;
+        cleanId = createData.report_id.trim();
+        sha = createData.sha256?.trim() ?? null;
+        setReportId(cleanId);
+        setReportSha256(sha);
       }
 
-      const { report_id, sha256 } = (await createRes.json()) as ReportCreateResponse;
-      const cleanId = report_id.replace(/^reports\//, '').replace(/\/pdf$/, '').replace(/\.pdf$/, '');
-
-      const pdfRes = await fetch(`${API_V1_BASE}/reports/${cleanId}.pdf`, {
+      const pdfRes = await apiFetch(`${BASE}/v1/reports/${cleanId}.pdf`, {
         headers: { 'X-API-Key': API_KEY },
       });
 
       if (!pdfRes.ok) {
         setReportError(await parseErrorMessage(pdfRes, checksUsed, quota));
-        setReportSha256(null);
         setDownloadingReport(false);
         return;
       }
 
-      const apiSha256 = pdfRes.headers.get('X-Report-SHA256') ?? sha256 ?? null;
+      const apiSha256 = pdfRes.headers.get('X-Report-SHA256') ?? sha ?? null;
       const blob = await pdfRes.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -544,7 +594,6 @@ export function Demo() {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 
-      setReportId(cleanId);
       setReportSha256(apiSha256);
       loadApprovalStatus(cleanId);
     } catch (err) {
@@ -557,16 +606,28 @@ export function Demo() {
   }
 
   async function handleVerifyReport(tamper: boolean) {
-    if (!result || !reportSha256 || !API_V1_BASE || isNetworkFallback) return;
+    if (!result || isNetworkFallback) return;
 
     setVerifyLoading(true);
     setVerifyError(null);
     setVerifyIsTamper(tamper);
 
+    let currentSha256 = reportSha256;
+    if (!currentSha256) {
+      const created = await ensureReportForAddress(result);
+      currentSha256 = created?.sha256 ?? null;
+    }
+
+    if (!currentSha256) {
+      setVerifyError('Create a report first to verify its integrity.');
+      setVerifyLoading(false);
+      return;
+    }
+
     const scoreToSend = tamper ? (result.score === 100 ? 99 : result.score + 1) : result.score;
 
     try {
-      const res = await fetch(`${API_V1_BASE}/verify`, {
+      const res = await apiFetch(`${BASE}/v1/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -580,7 +641,7 @@ export function Demo() {
           band: result.band,
           reasons: result.reasons,
           generated_at: result.generated_at,
-          sha256: reportSha256,
+          sha256: currentSha256,
         }),
       });
 
@@ -603,7 +664,7 @@ export function Demo() {
   }
 
   async function handleApprove(decision: 'approved' | 'rejected' | 'needs_review') {
-    if (!reportId || !API_V1_BASE || isNetworkFallback) return;
+    if (!result || isNetworkFallback) return;
     const trimmedName = analystName.trim();
     if (!trimmedName) {
       setApprovalError('Enter analyst name before recording a decision.');
@@ -613,8 +674,20 @@ export function Demo() {
     setApprovalLoading(true);
     setApprovalError(null);
 
+    let currentReportId = reportId;
+    if (!currentReportId) {
+      const created = await ensureReportForAddress(result);
+      currentReportId = created?.reportId ?? null;
+    }
+
+    if (!currentReportId) {
+      setApprovalError('Create a report first before recording a decision.');
+      setApprovalLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch(`${API_V1_BASE}/reports/${reportId}/approve`, {
+      const res = await apiFetch(`${BASE}/v1/reports/${currentReportId}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -650,18 +723,12 @@ export function Demo() {
   }
 
   async function handleFeedback(verdict: 'true_positive' | 'false_positive' | 'unsure') {
-    if (!result) return;
+    if (!result || isNetworkFallback) return;
     setSubmittingFeedback(true);
     setFeedbackError(null);
 
-    if (!API_V1_BASE || isNetworkFallback) {
-      setFeedbackError('Feedback requires a reachable backend API.');
-      setSubmittingFeedback(false);
-      return;
-    }
-
     try {
-      const res = await fetch(`${API_V1_BASE}/feedback`, {
+      const res = await apiFetch(`${BASE}/v1/feedback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -698,46 +765,45 @@ export function Demo() {
       return;
     }
 
-    if (API_V1_BASE) {
-      try {
-        const formData = new FormData();
-        const csvFile = file ?? new File([csvText], 'wallets.csv', { type: 'text/csv' });
-        formData.append('file', csvFile);
+    lastRetryRef.current = () => runBatchCsv(csvText, file);
 
-        const res = await fetch(`${API_V1_BASE}/batch`, {
-          method: 'POST',
-          headers: {
-            'X-API-Key': API_KEY,
-            Accept: 'application/json',
-          },
-          body: formData,
-        });
+    try {
+      const formData = new FormData();
+      const csvFile = file ?? new File([csvText], 'wallets.csv', { type: 'text/csv' });
+      formData.append('file', csvFile);
 
-        if (!res.ok) {
-          setBatchResults([]);
-          setBatchError(await parseErrorMessage(res, checksUsed, quota));
-          setBatchLoading(false);
-          return;
-        }
+      const res = await apiFetch(`${BASE}/v1/batch`, {
+        method: 'POST',
+        headers: {
+          'X-API-Key': API_KEY,
+          Accept: 'application/json',
+        },
+        body: formData,
+      });
 
-        const payload: unknown = await res.json();
-        if (!Array.isArray(payload)) {
-          setBatchResults([]);
-          setBatchError('Unexpected response from server');
-          setBatchLoading(false);
-          return;
-        }
-
-        setBatchResults(payload as BatchFlatRow[]);
+      if (!res.ok) {
+        setBatchResults([]);
+        setBatchError(await parseErrorMessage(res, checksUsed, quota));
         setBatchLoading(false);
-        fetchUsage();
         return;
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : 'Network failure';
-        setBatchNotice(`Demo data · Backend unreachable (${reason}) — showing local fixture batch results.`);
       }
-    } else {
-      setBatchNotice('Demo data · API base URL is not configured — showing local fixture batch results.');
+
+      const payload: unknown = await res.json();
+      if (!Array.isArray(payload)) {
+        setBatchResults([]);
+        setBatchError('Unexpected response from server');
+        setBatchLoading(false);
+        return;
+      }
+
+      setWakingUpBanner(false);
+      setBatchResults(payload as BatchFlatRow[]);
+      setBatchLoading(false);
+      fetchUsage();
+      return;
+    } catch {
+      setWakingUpBanner(true);
+      setBatchNotice('Demo data · Backend waking up or unreachable — showing local fixture batch results.');
     }
 
     const fallbackRows: BatchFlatRow[] = addresses.map(addr => {
@@ -811,17 +877,11 @@ export function Demo() {
   }
 
   async function handleVerifyAudit() {
-    if (!API_V1_BASE) {
-      setAuditError('Backend API URL is not configured.');
-      setAuditResult(null);
-      return;
-    }
-
     setAuditLoading(true);
     setAuditError(null);
 
     try {
-      const res = await fetch(`${API_V1_BASE}/audit/verify`, {
+      const res = await apiFetch(`${BASE}/v1/audit/verify`, {
         headers: {
           Accept: 'application/json',
           'X-API-Key': API_KEY,
@@ -860,7 +920,7 @@ export function Demo() {
     setValidationError(null);
     setResult(null);
     setError(null);
-    setNetworkNotice(null);
+    setWakingUpBanner(false);
     setIsNetworkFallback(false);
     setExplainData(null);
     setExplainError(null);
@@ -883,6 +943,16 @@ export function Demo() {
     setAuditError(null);
   }
 
+  function handleRetry() {
+    setWakingUpBanner(false);
+    if (lastRetryRef.current) {
+      lastRetryRef.current();
+    } else {
+      const target = address.trim() || CLEAN_TEST_ADDRESS;
+      performScreen(target);
+    }
+  }
+
   function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
@@ -899,7 +969,7 @@ export function Demo() {
     }
   }
 
-  const usagePct = Math.min(100, Math.round((checksUsed / quota) * 100));
+  const usagePct = quota && quota > 0 ? Math.min(100, Math.round((checksUsed / quota) * 100)) : 0;
   const reportHash = reportSha256?.trim() ?? null;
   const attestCmd = reportHash && result
     ? `REPORT_HASH=${reportHash} BAND=${result.band.toLowerCase()} npx hardhat run scripts/demo-attest.js --network hardhat`
@@ -1162,9 +1232,9 @@ export function Demo() {
                 </div>
               )}
 
-              {networkNotice && (
+              {wakingUpBanner && (
                 <div
-                  className="mb-6 p-3 rounded-lg text-xs font-mono"
+                  className="mb-6 p-3.5 rounded-lg text-xs font-mono flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                   style={{
                     background: 'rgba(242,169,59,0.16)',
                     border: '1px solid rgba(242,169,59,0.45)',
@@ -1173,7 +1243,24 @@ export function Demo() {
                   }}
                   role="status"
                 >
-                  Demo data · {networkNotice}
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-[#F2A93B]" />
+                    <span>The API is waking up (free hosting can take about a minute).</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="px-3 py-1.5 rounded min-h-[36px] font-semibold text-xs transition-colors shrink-0"
+                    style={{
+                      background: '#F2A93B',
+                      color: '#17144F',
+                      cursor: 'pointer',
+                      fontFamily: 'DM Mono, monospace',
+                    }}
+                    aria-label="Retry"
+                  >
+                    Retry
+                  </button>
                 </div>
               )}
 
@@ -1832,6 +1919,38 @@ export function Demo() {
                   </div>
                 )}
 
+                {wakingUpBanner && (
+                  <div
+                    className="mt-4 p-3.5 rounded-lg text-xs font-mono flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    style={{
+                      background: 'rgba(242,169,59,0.16)',
+                      border: '1px solid rgba(242,169,59,0.45)',
+                      color: '#8C5808',
+                      fontFamily: 'DM Mono, monospace',
+                    }}
+                    role="status"
+                  >
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-[#F2A93B]" />
+                      <span>The API is waking up (free hosting can take about a minute).</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRetry}
+                      className="px-3 py-1.5 rounded min-h-[36px] font-semibold text-xs transition-colors shrink-0"
+                      style={{
+                        background: '#F2A93B',
+                        color: '#17144F',
+                        cursor: 'pointer',
+                        fontFamily: 'DM Mono, monospace',
+                      }}
+                      aria-label="Retry"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
                 {batchNotice && (
                   <div
                     className="mt-4 p-3 rounded-lg text-xs font-mono"
@@ -1957,7 +2076,7 @@ export function Demo() {
                 API quota usage
               </h2>
               <span className="text-xs font-mono tabular-nums" style={{ color: '#17144F', fontFamily: 'DM Mono, monospace' }}>
-                {checksUsed} / {quota}
+                {checksUsed} / {quota !== null ? quota : '—'}
               </span>
             </div>
             <div
@@ -1967,7 +2086,7 @@ export function Demo() {
               aria-label="API checks used"
               aria-valuenow={checksUsed}
               aria-valuemin={0}
-              aria-valuemax={quota}
+              aria-valuemax={quota ?? checksUsed}
             >
               <div
                 className="h-2 rounded-full"

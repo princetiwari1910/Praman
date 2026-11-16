@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import json
 import os
 from datetime import datetime, timezone
@@ -27,15 +28,48 @@ def load_config():
 
 config = load_config()
 
-app = FastAPI(title="Praman B2B Crypto Wallet Risk Screening API", version="0.1.0")
+async def lifespan(app: FastAPI):
+    # Mode
+    use_live = os.getenv("USE_FIXTURES", "false").lower() == "false"
+    etherscan_key = os.getenv("ETHERSCAN_API_KEY")
+    mode = "live" if use_live and etherscan_key else "fixture"
+    
+    # Quota
+    quota = int(os.getenv("QUOTA", "100"))
+    
+    # API keys configured
+    api_keys_env = os.getenv("API_KEYS", "")
+    api_keys = [k.strip() for k in api_keys_env.split(",") if k.strip()]
+    num_keys = len(api_keys)
+    
+    # Sanctions info
+    from app.engine.sanctions import info as sanctions_info
+    sanctions = sanctions_info()
+    sanctions_count = sanctions.get("count", 0)
+    using_sample = sanctions.get("using_sample", False)
+    
+    # Etherscan key status
+    etherscan_status = "etherscan_key: set" if etherscan_key else "etherscan_key: missing"
+    
+    with open("/tmp/startup_log.txt", "w") as f:
+        f.write(f"mode={mode} quota={quota} keys={num_keys} sanctions_count={sanctions_count} using_sample={using_sample} {etherscan_status}\n")
+    
+    yield  # Wait for app to shut down
+
+app = FastAPI(title="Praman B2B Crypto Wallet Risk Screening API", version="0.1.0", lifespan=lifespan)
 
 # CORS – only the dev fronts
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+cors_origins_raw = [o.strip().rstrip("/") for o in cors_origins_env.split(",") if o.strip()]
+default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+allow_origins = default_origins + cors_origins_raw
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:3000"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    expose_headers=["X-Report-SHA256", "X-Request-ID"],
+    expose_headers=["X-Report-SHA256"],
     allow_headers=["*"],
 )
 
@@ -95,7 +129,7 @@ def starlette_exception_handler(request: Request, exc: StarletteHTTPException):
 def generic_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": "internal_error", "message": str(exc)},
+        content={"error": "internal_error", "message": "Unexpected server error"},
         media_type="application/json",
     )
 
@@ -111,8 +145,8 @@ async def print_startup_info():
     quota = int(os.getenv("QUOTA", "100"))
     
     # API keys configured
-    api_keys_str = os.getenv("API_KEYS", "")
-    api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+    api_keys_env = os.getenv("API_KEYS", "")
+    api_keys = [k.strip() for k in api_keys_env.split(",") if k.strip()]
     num_keys = len(api_keys)
     
     # Sanctions info
@@ -124,7 +158,8 @@ async def print_startup_info():
     # Etherscan key status
     etherscan_status = "etherscan_key: set" if etherscan_key else "etherscan_key: missing"
     
-    print(f"mode={mode} quota={quota} keys={num_keys} sanctions_count={sanctions_count} using_sample={using_sample} {etherscan_status}")
+    with open("/tmp/startup_log.txt", "w") as f:
+        f.write(f"mode={mode} quota={quota} keys={num_keys} sanctions_count={sanctions_count} using_sample={using_sample} {etherscan_status}\n")
 
 # ============================================================
 # Include the risk router with require_api_key dependency
@@ -137,6 +172,17 @@ app.include_router(risk_router, dependencies=[Depends(require_api_key)])
 # Root health check
 # ============================================================
 
+@app.get("/health")
+async def health_root():
+    """Health check without authentication — root level."""
+    from app.state import QUOTA
+    return {
+        "status": "ok",
+        "data_mode": "fixture",
+        "quota": QUOTA,
+    }
+
+
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Praman API is running"}
@@ -146,14 +192,14 @@ async def root():
 @app.get("/v1/health", include_in_schema=False)
 async def health_endpoint():
     """Health check without authentication."""
+    from app.state import QUOTA
     use_live = os.getenv("USE_FIXTURES", "false").lower() == "false"
     etherscan_key = os.getenv("ETHERSCAN_API_KEY")
-    mode = "live" if use_live and etherscan_key else "fixture"
-    sanctions = sanctions_info()
+    data_mode = "live" if use_live and etherscan_key else "fixture"
     return {
         "status": "ok",
-        "mode": mode,
-        "sanctions_using_sample": sanctions.get("using_sample", False),
+        "data_mode": data_mode,
+        "quota": QUOTA,
     }
 
 # ============================================================
@@ -171,12 +217,11 @@ async def config_endpoint(request: Request, api_key: str = Depends(require_api_k
 
 @app.get("/v1/usage")
 async def usage_endpoint(api_key: str = Depends(require_api_key)):
-    """Usage statistics – counts real /v1/risk calls for the current API key, quota fixed at 100."""
-    from app.state import usage
-    used = min(usage.get(api_key, 0), 100)
-    quota = 100
+    """Usage statistics – counts real /v1/risk calls for the current API key."""
+    from app.state import usage, QUOTA
+    used = min(usage.get(api_key, 0), QUOTA)
     plan = "free" if os.getenv("USE_FIXTURES", "false").lower() == "true" else "paid"
-    return {"checks_used": used, "quota": quota, "plan": plan}
+    return {"checks_used": used, "quota": QUOTA, "plan": plan}
 
 
 # /v1/dev/reset – conditional on DEMO_MODE

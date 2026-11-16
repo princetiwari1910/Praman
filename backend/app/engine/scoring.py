@@ -64,7 +64,7 @@ def compute_score_and_data(
                 "code": "SANCTIONS_MATCH",
                 "title": "Sanctions Match",
                 "weight": SANCTIONS_MATCH_WEIGHT,
-                "detail": "Address found on sanctions list",
+                "detail": "Matched the demo sanctions file (synthetic entry, not real OFAC data)",
             }
         )
 
@@ -136,7 +136,7 @@ def compute_score_and_data(
                     "code": "MIXER_EXPOSURE",
                     "title": "Mixer Exposure",
                     "weight": MIXER_EXPOSURE_WEIGHT,
-                    "detail": f"Mixer share: {mixer_share:.0f}%",
+                    "detail": f"Demo fixture: mixer share {mixer_share:.0f}% (demo fixture)",
                 }
             )
 
@@ -149,7 +149,7 @@ def compute_score_and_data(
                     "code": "HIGH_VELOCITY",
                     "title": "High Velocity",
                     "weight": HIGH_VELOCITY_WEIGHT,
-                    "detail": f"{tx_count} transactions in last 30 days",
+                    "detail": f"{tx_count} transactions in last 30 days (demo fixture)",
                 }
             )
 
@@ -162,7 +162,7 @@ def compute_score_and_data(
                     "code": "NEW_WALLET",
                     "title": "New Wallet",
                     "weight": NEW_WALLET_WEIGHT,
-                    "detail": f"Account age is {account_age} days",
+                    "detail": f"Account age is {account_age} days (demo fixture)",
                 }
             )
 
@@ -175,7 +175,7 @@ def compute_score_and_data(
                         "code": "RISKY_COUNTERPARTY",
                         "title": "Risky Counterparty",
                         "weight": RISKY_COUNTERPARTY_WEIGHT,
-                        "detail": "Address interacts with risky counterparty",
+                        "detail": "Address interacts with risky counterparty (demo fixture)",
                     }
                 )
 

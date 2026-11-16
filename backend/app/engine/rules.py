@@ -19,7 +19,7 @@ def rule_sanctions_match(wallet_data: dict, sanctioned: bool) -> Optional[dict]:
             "code": "SANCTIONS_MATCH",
             "title": "Sanctions Match",
             "weight": SANCTIONS_MATCH_WEIGHT,
-            "detail": "Address found on sanctions list",
+            "detail": "Matched the demo sanctions file (synthetic entry, not real OFAC data)",
         }
     return None
 
@@ -32,7 +32,7 @@ def rule_mixer_exposure(wallet_data: dict, sanctioned: bool) -> Optional[dict]:
             "code": "MIXER_EXPOSURE",
             "title": "Mixer Exposure",
             "weight": MIXER_EXPOSURE_WEIGHT,
-            "detail": f"Mixer share: {mixer_share:.0f}%",
+            "detail": f"Demo fixture: mixer share {mixer_share:.0f}% (synthetic data)",
         }
     return None
 
@@ -45,7 +45,7 @@ def rule_high_velocity(wallet_data: dict, sanctioned: bool) -> Optional[dict]:
             "code": "HIGH_VELOCITY",
             "title": "High Velocity",
             "weight": HIGH_VELOCITY_WEIGHT,
-            "detail": f"{tx_count} transactions in last 30 days",
+            "detail": f"{tx_count} transactions in last 30 days (demo fixture)",
         }
     return None
 
@@ -58,7 +58,7 @@ def rule_new_wallet(wallet_data: dict, sanctioned: bool) -> Optional[dict]:
             "code": "NEW_WALLET",
             "title": "New Wallet",
             "weight": NEW_WALLET_WEIGHT,
-            "detail": f"Account age is {account_age} days",
+            "detail": f"Account age is {account_age} days (demo fixture)",
         }
     return None
 
@@ -75,6 +75,6 @@ def rule_risky_counterparty(wallet_data: dict, sanctioned: bool) -> Optional[dic
                     "code": "RISKY_COUNTERPARTY",
                     "title": "Risky Counterparty",
                     "weight": RISKY_COUNTERPARTY_WEIGHT,
-                    "detail": f"Address interacts with {cp.get('label', 'counterparty')} (risk: {cp.get('risk')})",
+                    "detail": f"Address interacts with {cp.get('label', 'counterparty')} (risk: {cp.get('risk')}) (demo fixture)",
                 }
     return None

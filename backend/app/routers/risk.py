@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.dependencies import require_api_key
 
-from app.state import usage, reports
+from app.state import usage, reports, QUOTA, reset
 from app.engine.sanctions import is_sanctioned
 from app.engine.live import fetch_wallet, LiveError as LiveLiveError
 from app.engine.fixtures import _CLEAN_WALLET, _HIGH_RISK_WALLET, _DEFAULT_WALLET
@@ -28,6 +28,7 @@ from app.engine.scoring import (
     compute_score_and_data,
     evaluate_wallet,
 )
+from uuid import uuid4
 
 
 router = APIRouter(prefix="/v1", tags=["risk"])
@@ -226,15 +227,68 @@ async def reports_post(
 
     pdf_bytes = _build_report_pdf(address, evaluation)
     sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-    report_id = address[-8:]
+    report_id = uuid4().hex[:16]
 
-    reports[address] = {
+    reports[report_id] = {
+        "address": address,
         "report_id": report_id,
         "sha256": sha256,
         "pdf_bytes": pdf_bytes,
         "data_mode": evaluation["data_mode"],
     }
-    return {"report_id": report_id, "sha256": sha256}
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content={"report_id": report_id, "sha256": sha256})
+
+
+@router.get("/reports/{report_id}/evidence")
+async def reports_evidence_get(
+    report_id: str,
+    api_key: str = Depends(require_api_key),
+):
+    """Return evidence JSON for a report (format v1, no audit/usage)."""
+    address = None
+    pdf_bytes = None
+    for addr, rpt in reports.items():
+        if rpt["report_id"] == report_id:
+            address = addr
+            pdf_bytes = rpt.get("pdf_bytes")
+            break
+
+    if address is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "report_not_found", "message": "Report not found"},
+        )
+
+    if pdf_bytes is None or True:
+        evaluation = evaluate_wallet(address, live_mode=False)
+        pdf_bytes = _build_report_pdf(address, evaluation)
+
+    import hashlib
+    import json as json_mod
+
+    report_data = {
+        "address": evaluation["address"],
+        "chain": evaluation.get("chain", "ethereum"),
+        "score": evaluation["score"],
+        "band": evaluation["band"],
+        "reasons": evaluation.get("reasons", []),
+        "generated_at": evaluation.get("generated_at", ""),
+    }
+
+    report_json = json_mod.dumps(report_data, sort_keys=True, separators=(",", ":"))
+    sha256 = hashlib.sha256(report_json.encode()).hexdigest()
+
+    return {
+        "format": "praman-evidence-v1",
+        "data_mode": evaluation["data_mode"],
+        "report": report_data,
+        "sha256": sha256,
+        "canonicalization": "sha256 of json.dumps(report, sort_keys=True, separators=(',', ':'))",
+        "bands": [{"name": "low", "min": 0, "max": 24}, {"name": "medium", "min": 25, "max": 49}, {"name": "high", "min": 50, "max": 74}, {"name": "severe", "min": 75, "max": 100}],
+        "approval": {"decision": "pending"},
+        "audit_head": {"entries": len(reports), "last_entry_hash": "0" * 64},
+        "notice": "Demo/fixture data. Screening signals support human review; not legal advice.",
+    }
 
 
 def _build_report_pdf(address: str, evaluation: dict) -> bytes:
