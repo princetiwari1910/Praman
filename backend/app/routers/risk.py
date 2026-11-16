@@ -215,6 +215,10 @@ async def reports_post(
     payload: dict,
 ):
     """Submit a wallet for report generation."""
+    import hashlib
+    import json as json_mod
+    from datetime import datetime, timezone
+
     address = payload.get("address")
 
     if not isinstance(address, str) or not re.match(r"^0x[0-9a-fA-F]{40}$", address):
@@ -225,8 +229,24 @@ async def reports_post(
 
     evaluation = evaluate_wallet(address, live_mode=False)
 
-    pdf_bytes = _build_report_pdf(address, evaluation)
-    sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    pdf_bytes = _build_report_pdf(address, evaluation, generated_at)
+    sha256 = hashlib.sha256(
+        json_mod.dumps(
+            {
+                "address": address,
+                "chain": evaluation.get("chain", "ethereum"),
+                "score": evaluation["score"],
+                "band": evaluation["band"],
+                "reasons": evaluation.get("reasons", []),
+                "generated_at": generated_at,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
     report_id = uuid4().hex[:16]
 
     reports[report_id] = {
@@ -235,6 +255,7 @@ async def reports_post(
         "sha256": sha256,
         "pdf_bytes": pdf_bytes,
         "data_mode": evaluation["data_mode"],
+        "generated_at": generated_at,
     }
     return JSONResponse(status_code=status.HTTP_201_CREATED, content={"report_id": report_id, "sha256": sha256})
 
@@ -261,7 +282,14 @@ async def reports_evidence_get(
 
     if pdf_bytes is None or True:
         evaluation = evaluate_wallet(address, live_mode=False)
-        pdf_bytes = _build_report_pdf(address, evaluation)
+        # Get stored generated_at if available
+        stored_rpt = None
+        for addr, rpt in reports.items():
+            if rpt["report_id"] == report_id:
+                stored_rpt = rpt
+                break
+        gen_at = stored_rpt.get("generated_at") if stored_rpt else datetime.now(timezone.utc).isoformat()
+        pdf_bytes = _build_report_pdf(address, evaluation, gen_at)
 
     import hashlib
     import json as json_mod
@@ -291,7 +319,7 @@ async def reports_evidence_get(
     }
 
 
-def _build_report_pdf(address: str, evaluation: dict) -> bytes:
+def _build_report_pdf(address: str, evaluation: dict, generated_at: str) -> bytes:
     """Render a deterministic PDF report for a wallet address."""
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
@@ -322,6 +350,7 @@ def _build_report_pdf(address: str, evaluation: dict) -> bytes:
         y -= 12
 
     c.drawString(50, 50, "Screening signals support human review; not legal advice.")
+    c.drawString(50, 30, f"Generated at: {generated_at}")
 
     c.showPage()
     c.save()
@@ -352,7 +381,16 @@ async def reports_pdf_get(
     if pdf_bytes is None:
         # Re-generate PDF
         evaluation = evaluate_wallet(address, live_mode=False)
-        pdf_bytes = _build_report_pdf(address, evaluation)
+        # Get stored generated_at or compute new one
+        stored_rpt = None
+        for addr, rpt in reports.items():
+            if rpt["report_id"] == report_id:
+                stored_rpt = rpt
+                break
+        if stored_rpt and stored_rpt.get("generated_at"):
+            pdf_bytes = _build_report_pdf(address, evaluation, stored_rpt["generated_at"])
+        else:
+            pdf_bytes = _build_report_pdf(address, evaluation, datetime.now(timezone.utc).isoformat())
 
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

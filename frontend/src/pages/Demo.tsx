@@ -281,6 +281,12 @@ export function Demo() {
   const [reportSha256, setReportSha256] = useState<string | null>(null);
   const [copiedAttestCmd, setCopiedAttestCmd] = useState(false);
 
+  // Evidence pack & Proof summary copy
+  const [downloadingEvidence, setDownloadingEvidence] = useState(false);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [copiedVerifyEvidenceCmd, setCopiedVerifyEvidenceCmd] = useState(false);
+  const [copiedReportHash, setCopiedReportHash] = useState(false);
+
   // Verify report
   const [verifyResult, setVerifyResult] = useState<VerifyReportResponse | null>(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -467,6 +473,10 @@ export function Demo() {
     setReportError(null);
     setReportId(null);
     setReportSha256(null);
+    setDownloadingEvidence(false);
+    setEvidenceError(null);
+    setCopiedVerifyEvidenceCmd(false);
+    setCopiedReportHash(false);
     setVerifyResult(null);
     setVerifyError(null);
     setApproval(null);
@@ -926,6 +936,10 @@ export function Demo() {
     setExplainError(null);
     setReportId(null);
     setReportSha256(null);
+    setDownloadingEvidence(false);
+    setEvidenceError(null);
+    setCopiedVerifyEvidenceCmd(false);
+    setCopiedReportHash(false);
     setReportError(null);
     setCopiedAttestCmd(false);
     setVerifyResult(null);
@@ -974,6 +988,7 @@ export function Demo() {
   const attestCmd = reportHash && result
     ? `REPORT_HASH=${reportHash} BAND=${result.band.toLowerCase()} npx hardhat run scripts/demo-attest.js --network hardhat`
     : '';
+  const verifyEvidenceCmd = `python scripts/verify_evidence.py evidence_${reportId || '<reportId>'}.json`;
   const currentDecision: ApprovalDecision = approval?.decision ?? 'pending';
 
   async function handleCopyAttestCmd() {
@@ -984,6 +999,63 @@ export function Demo() {
       setTimeout(() => setCopiedAttestCmd(false), 2000);
     } catch {
       // Clipboard unavailable
+    }
+  }
+
+  async function handleCopyVerifyEvidenceCmd() {
+    try {
+      await navigator.clipboard.writeText(verifyEvidenceCmd);
+      setCopiedVerifyEvidenceCmd(true);
+      setTimeout(() => setCopiedVerifyEvidenceCmd(false), 2000);
+    } catch {
+      // Clipboard unavailable
+    }
+  }
+
+  async function handleCopyReportHash() {
+    if (!reportHash) return;
+    try {
+      await navigator.clipboard.writeText(reportHash);
+      setCopiedReportHash(true);
+      setTimeout(() => setCopiedReportHash(false), 2000);
+    } catch {
+      // Clipboard unavailable
+    }
+  }
+
+  async function handleDownloadEvidence() {
+    if (!reportId) return;
+    setDownloadingEvidence(true);
+    setEvidenceError(null);
+
+    try {
+      const res = await apiFetch(`${BASE}/v1/reports/${reportId}/evidence`, {
+        headers: {
+          Accept: 'application/json',
+          'X-API-Key': API_KEY,
+        },
+      });
+
+      if (!res.ok) {
+        setEvidenceError(await parseErrorMessage(res, checksUsed, quota));
+        setDownloadingEvidence(false);
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `evidence_${reportId}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setDownloadingEvidence(false);
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : 'Network error';
+      setEvidenceError(`Could not download evidence (${reason}).`);
+      setDownloadingEvidence(false);
     }
   }
 
@@ -1266,7 +1338,113 @@ export function Demo() {
 
               {result && (
                 <div className="space-y-6">
-                  {/* Data mode & Sanctions badges */}
+                  {/* ── 4 NUMBERED NAVIGATION CHIPS ─────────────────── */}
+                  <nav aria-label="Demo sections" className="flex flex-wrap items-center gap-2">
+                    {[
+                      { id: 'panel-check', label: '1 Check wallet' },
+                      { id: 'panel-what-if', label: '2 What-if' },
+                      { id: 'panel-report-verify', label: '3 Report and verify' },
+                      { id: 'panel-review', label: '4 Review' },
+                    ].map(chip => (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById(chip.id);
+                          el?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+                        }}
+                        className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-[#F2A93B]"
+                        style={{
+                          background: '#fff',
+                          borderColor: 'rgba(23,20,79,0.18)',
+                          color: '#17144F',
+                          cursor: 'pointer',
+                          fontFamily: 'DM Mono, monospace',
+                        }}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </nav>
+
+                  {/* ── PROOF SUMMARY STRIP ─────────────────────────── */}
+                  {(() => {
+                    const weightSum = result.reasons.reduce((acc, r) => acc + Math.trunc(r.weight), 0);
+                    return (
+                      <div
+                        className="rounded-xl p-4 text-xs font-mono border flex flex-wrap items-center gap-x-6 gap-y-3"
+                        style={{
+                          background: 'rgba(23,20,79,0.03)',
+                          borderColor: 'rgba(23,20,79,0.12)',
+                          color: '#17144F',
+                          fontFamily: 'DM Mono, monospace',
+                        }}
+                        aria-label="Proof summary"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: '#5B6178' }}>
+                            Score:
+                          </span>
+                          <span className="font-bold">{result.score}</span>
+                          <span style={{ color: '#5B6178' }}>(sum: {weightSum})</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: '#5B6178' }}>
+                            Band:
+                          </span>
+                          <span className="font-semibold" style={{ color: bandTextColor(result.band) }}>
+                            {result.band}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: '#5B6178' }}>
+                            Report hash:
+                          </span>
+                          <span>{reportHash ? `${reportHash.slice(0, 12)}…` : '—'}</span>
+                          {reportHash && (
+                            <button
+                              type="button"
+                              onClick={handleCopyReportHash}
+                              className="px-2 py-1 min-h-[32px] rounded border inline-flex items-center gap-1 text-[11px] font-mono transition-colors"
+                              style={{
+                                borderColor: 'rgba(23,20,79,0.2)',
+                                background: '#fff',
+                                color: '#17144F',
+                                cursor: 'pointer',
+                                fontFamily: 'DM Mono, monospace',
+                              }}
+                              aria-label="Copy report data hash"
+                            >
+                              {copiedReportHash ? <Check size={11} aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
+                              <span>{copiedReportHash ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: '#5B6178' }}>
+                            Approval:
+                          </span>
+                          <span className="font-semibold">
+                            {currentDecision === 'pending' ? 'Pending' : currentDecision}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: '#5B6178' }}>
+                            Audit entries:
+                          </span>
+                          <span>{auditResult ? `${auditResult.entries} entries` : '—'}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── 1 CHECK WALLET PANEL ───────────────────────── */}
+                  <div id="panel-check" className="space-y-6">
+                    {/* Data mode & Sanctions badges */}
                   <div className="flex flex-wrap items-center gap-3">
                     <span
                       className="inline-flex items-center px-3 py-1 rounded text-xs font-mono"
@@ -1415,9 +1593,11 @@ export function Demo() {
                       </div>
                     </div>
                   </div>
+                  </div>
 
-                  {/* 3) What would change this score? (Explainability / Counterfactuals) */}
+                  {/* ── 2 WHAT-IF PANEL ────────────────────────────── */}
                   <div
+                    id="panel-what-if"
                     className="min-w-0 rounded-xl p-6"
                     style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
                   >
@@ -1495,8 +1675,8 @@ export function Demo() {
                     ) : null}
                   </div>
 
-                  {/* 4) Verify report & 5) Analyst review (shown after a report exists) */}
-                  {reportId && (
+                  {/* ── 3 REPORT AND VERIFY PANEL ──────────────────── */}
+                  <div id="panel-report-verify" className="space-y-6">
                     <div className="grid lg:grid-cols-2 gap-6">
                       {/* Verify report */}
                       <div
@@ -1581,190 +1761,92 @@ export function Demo() {
                         )}
                       </div>
 
-                      {/* Analyst review */}
+                      {/* Evidence pack card */}
                       <div
-                        className="min-w-0 rounded-xl p-6"
+                        className="min-w-0 rounded-xl p-6 flex flex-col justify-between"
                         style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <div>
                           <h2
-                            className="text-base font-bold"
+                            className="text-base font-bold mb-2"
                             style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
                           >
-                            Analyst review
+                            Evidence pack
                           </h2>
-                          <span
-                            className="px-2.5 py-0.5 rounded text-xs font-mono"
+                          <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
+                            Cryptographic evidence pack containing report payload, canonicalization, and bands.
+                          </p>
+
+                          <button
+                            type="button"
+                            disabled={!reportId || downloadingEvidence}
+                            onClick={handleDownloadEvidence}
+                            className="w-full py-2.5 min-h-[44px] rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors duration-150"
                             style={{
-                              background:
-                                currentDecision === 'approved'
-                                  ? 'rgba(29,156,134,0.12)'
-                                  : currentDecision === 'rejected'
-                                    ? 'rgba(226,85,79,0.12)'
-                                    : 'rgba(242,169,59,0.18)',
-                              color:
-                                currentDecision === 'approved'
-                                  ? '#147564'
-                                  : currentDecision === 'rejected'
-                                    ? '#B8332E'
-                                    : '#8C5808',
-                              fontFamily: 'DM Mono, monospace',
+                              background: !reportId || downloadingEvidence ? 'rgba(23,20,79,0.5)' : '#17144F',
+                              color: '#EDF0F7',
+                              border: 'none',
+                              cursor: !reportId || downloadingEvidence ? 'not-allowed' : 'pointer',
+                              fontFamily: 'Syne Variable, Syne, sans-serif',
                             }}
-                            role="status"
+                            aria-label="Download evidence (JSON)"
                           >
-                            {currentDecision === 'pending' ? 'Pending review' : currentDecision}
-                            {approval?.analyst_name ? ` · ${approval.analyst_name}` : ''}
-                            {approval?.decided_at || approval?.timestamp
-                              ? ` · ${new Date(approval.decided_at ?? approval.timestamp ?? '').toLocaleTimeString()}`
-                              : ''}
-                          </span>
+                            {downloadingEvidence ? (
+                              <>
+                                <Loader2 size={14} className={reduced ? '' : 'animate-spin'} aria-hidden="true" />
+                                Downloading…
+                              </>
+                            ) : (
+                              <>
+                                <Download size={14} aria-hidden="true" />
+                                Download evidence (JSON)
+                              </>
+                            )}
+                          </button>
+
+                          {evidenceError && (
+                            <p className="mt-2 text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                              {evidenceError}
+                            </p>
+                          )}
                         </div>
 
-                        <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
-                          Draft report. A human compliance officer decides.
-                        </p>
-
-                        {isNetworkFallback ? (
-                          <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
-                            Disabled in offline Demo data mode — start the backend API to record analyst review.
-                          </p>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="grid sm:grid-cols-2 gap-3">
-                              <input
-                                type="text"
-                                value={analystName}
-                                onChange={e => setAnalystName(e.target.value)}
-                                placeholder="Analyst name"
-                                aria-label="Analyst name"
-                                className="min-h-[44px] rounded-lg px-3 py-2 text-xs border"
-                                style={{
-                                  background: '#fff',
-                                  borderColor: 'rgba(23,20,79,0.18)',
-                                  color: '#17144F',
-                                  fontFamily: 'DM Mono, monospace',
-                                }}
-                              />
-                              <input
-                                type="text"
-                                value={reviewNote}
-                                onChange={e => setReviewNote(e.target.value)}
-                                placeholder="Optional note"
-                                aria-label="Review note"
-                                className="min-h-[44px] rounded-lg px-3 py-2 text-xs border"
-                                style={{
-                                  background: '#fff',
-                                  borderColor: 'rgba(23,20,79,0.18)',
-                                  color: '#17144F',
-                                  fontFamily: 'DM Mono, monospace',
-                                }}
-                              />
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                              {(
-                                [
-                                  { id: 'approved', label: 'Approved' },
-                                  { id: 'rejected', label: 'Rejected' },
-                                  { id: 'needs_review', label: 'Needs review' },
-                                ] as const
-                              ).map(btn => (
-                                <button
-                                  key={btn.id}
-                                  type="button"
-                                  disabled={approvalLoading}
-                                  onClick={() => handleApprove(btn.id)}
-                                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
-                                  style={{
-                                    background: currentDecision === btn.id ? '#17144F' : '#EDF0F7',
-                                    color: currentDecision === btn.id ? '#EDF0F7' : '#17144F',
-                                    borderColor: currentDecision === btn.id ? '#17144F' : 'rgba(23,20,79,0.18)',
-                                    cursor: approvalLoading ? 'not-allowed' : 'pointer',
-                                    fontFamily: 'DM Mono, monospace',
-                                  }}
-                                >
-                                  {btn.label}
-                                </button>
-                              ))}
-                            </div>
-
-                            {approvalError && (
-                              <p className="text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
-                                {approvalError}
-                              </p>
-                            )}
+                        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'rgba(23,20,79,0.08)' }}>
+                          <div className="text-xs mb-1.5" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                            Verify without trusting our server:
                           </div>
-                        )}
+                          <div className="flex items-center gap-2 mb-2">
+                            <code
+                              className="flex-1 text-xs p-2 rounded break-all"
+                              style={{ background: 'rgba(23,20,79,0.05)', color: '#17144F', fontFamily: 'DM Mono, monospace' }}
+                            >
+                              python scripts/verify_evidence.py evidence_{reportId || '&lt;reportId&gt;'}.json
+                            </code>
+                            <button
+                              type="button"
+                              onClick={handleCopyVerifyEvidenceCmd}
+                              className="px-3 py-2 min-h-[44px] min-w-[44px] rounded border shrink-0 text-xs font-mono inline-flex items-center justify-center gap-1.5 transition-colors"
+                              style={{
+                                borderColor: 'rgba(23,20,79,0.2)',
+                                background: '#fff',
+                                color: '#17144F',
+                                cursor: 'pointer',
+                                fontFamily: 'DM Mono, monospace',
+                              }}
+                              aria-label="Copy verification command"
+                            >
+                              {copiedVerifyEvidenceCmd ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                              <span>{copiedVerifyEvidenceCmd ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
+                          <p className="text-xs font-mono" style={{ color: '#8C5808', fontFamily: 'DM Mono, monospace' }}>
+                            Demo and fixture data only.
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  )}
 
-                  {/* Feedback + Attestation panels */}
-                  <div className="grid lg:grid-cols-2 gap-6">
-                    {/* Feedback */}
-                    <div
-                      className="min-w-0 rounded-xl p-6"
-                      style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
-                    >
-                      <h2
-                        className="text-base font-bold mb-2"
-                        style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
-                      >
-                        Analyst feedback
-                      </h2>
-                      <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
-                        Record whether this screening outcome matches your analyst review.
-                      </p>
-                      {isNetworkFallback ? (
-                        <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
-                          Disabled in offline Demo data mode — start the backend API to submit feedback.
-                        </p>
-                      ) : (
-                        <>
-                          <div className="flex flex-wrap gap-2">
-                            {(
-                              [
-                                { id: 'true_positive', label: 'True positive' },
-                                { id: 'false_positive', label: 'False positive' },
-                                { id: 'unsure', label: 'Unsure' },
-                              ] as const
-                            ).map(btn => {
-                              const selected = feedbackSent === btn.id;
-                              return (
-                                <button
-                                  key={btn.id}
-                                  type="button"
-                                  disabled={submittingFeedback}
-                                  onClick={() => handleFeedback(btn.id)}
-                                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
-                                  style={{
-                                    background: selected ? '#17144F' : '#EDF0F7',
-                                    color: selected ? '#EDF0F7' : '#17144F',
-                                    borderColor: selected ? '#17144F' : 'rgba(23,20,79,0.18)',
-                                    cursor: submittingFeedback ? 'not-allowed' : 'pointer',
-                                    fontFamily: 'DM Mono, monospace',
-                                  }}
-                                >
-                                  {btn.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {feedbackSent && (
-                            <p className="mt-3 text-xs font-mono" style={{ color: '#147564', fontFamily: 'DM Mono, monospace' }} role="status">
-                              Feedback recorded ({feedbackSent.replace('_', ' ')})
-                            </p>
-                          )}
-                          {feedbackError && (
-                            <p className="mt-3 text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
-                              {feedbackError}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {/* Attestation panel */}
+                    {/* Local attestation card */}
                     <div
                       className="min-w-0 rounded-xl p-6"
                       style={{ background: '#17144F', color: '#EDF0F7' }}
@@ -1836,6 +1918,188 @@ export function Demo() {
                         <p className="text-xs" style={{ color: 'rgba(237,240,247,0.72)', fontFamily: 'DM Mono, monospace' }}>
                           Create a report first
                         </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── 4 REVIEW PANEL ─────────────────────────────── */}
+                  <div id="panel-review" className="grid lg:grid-cols-2 gap-6">
+                    {/* Analyst review */}
+                    <div
+                      className="min-w-0 rounded-xl p-6"
+                      style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <h2
+                          className="text-base font-bold"
+                          style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                        >
+                          Analyst review
+                        </h2>
+                        <span
+                          className="px-2.5 py-0.5 rounded text-xs font-mono"
+                          style={{
+                            background:
+                              currentDecision === 'approved'
+                                ? 'rgba(29,156,134,0.12)'
+                                : currentDecision === 'rejected'
+                                  ? 'rgba(226,85,79,0.12)'
+                                  : 'rgba(242,169,59,0.18)',
+                            color:
+                              currentDecision === 'approved'
+                                ? '#147564'
+                                : currentDecision === 'rejected'
+                                  ? '#B8332E'
+                                  : '#8C5808',
+                            fontFamily: 'DM Mono, monospace',
+                          }}
+                          role="status"
+                        >
+                          {currentDecision === 'pending' ? 'Pending review' : currentDecision}
+                          {approval?.analyst_name ? ` · ${approval.analyst_name}` : ''}
+                          {approval?.decided_at || approval?.timestamp
+                            ? ` · ${new Date(approval.decided_at ?? approval.timestamp ?? '').toLocaleTimeString()}`
+                            : ''}
+                        </span>
+                      </div>
+
+                      <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
+                        Draft report. A human compliance officer decides.
+                      </p>
+
+                      {isNetworkFallback ? (
+                        <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                          Disabled in offline Demo data mode — start the backend API to record analyst review.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            <input
+                              type="text"
+                              value={analystName}
+                              onChange={e => setAnalystName(e.target.value)}
+                              placeholder="Analyst name"
+                              aria-label="Analyst name"
+                              className="min-h-[44px] rounded-lg px-3 py-2 text-xs border"
+                              style={{
+                                background: '#fff',
+                                borderColor: 'rgba(23,20,79,0.18)',
+                                color: '#17144F',
+                                fontFamily: 'DM Mono, monospace',
+                              }}
+                            />
+                            <input
+                              type="text"
+                              value={reviewNote}
+                              onChange={e => setReviewNote(e.target.value)}
+                              placeholder="Optional note"
+                              aria-label="Review note"
+                              className="min-h-[44px] rounded-lg px-3 py-2 text-xs border"
+                              style={{
+                                background: '#fff',
+                                borderColor: 'rgba(23,20,79,0.18)',
+                                color: '#17144F',
+                                fontFamily: 'DM Mono, monospace',
+                              }}
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {(
+                              [
+                                { id: 'approved', label: 'Approved' },
+                                { id: 'rejected', label: 'Rejected' },
+                                { id: 'needs_review', label: 'Needs review' },
+                              ] as const
+                            ).map(btn => (
+                              <button
+                                key={btn.id}
+                                type="button"
+                                disabled={approvalLoading}
+                                onClick={() => handleApprove(btn.id)}
+                                className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
+                                style={{
+                                  background: currentDecision === btn.id ? '#17144F' : '#EDF0F7',
+                                  color: currentDecision === btn.id ? '#EDF0F7' : '#17144F',
+                                  borderColor: currentDecision === btn.id ? '#17144F' : 'rgba(23,20,79,0.18)',
+                                  cursor: approvalLoading ? 'not-allowed' : 'pointer',
+                                  fontFamily: 'DM Mono, monospace',
+                                }}
+                              >
+                                {btn.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {approvalError && (
+                            <p className="text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                              {approvalError}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Feedback */}
+                    <div
+                      className="min-w-0 rounded-xl p-6"
+                      style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}
+                    >
+                      <h2
+                        className="text-base font-bold mb-2"
+                        style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                      >
+                        Analyst feedback
+                      </h2>
+                      <p className="text-xs mb-4" style={{ color: '#5B6178' }}>
+                        Record whether this screening outcome matches your analyst review.
+                      </p>
+                      {isNetworkFallback ? (
+                        <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
+                          Disabled in offline Demo data mode — start the backend API to submit feedback.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap gap-2">
+                            {(
+                              [
+                                { id: 'true_positive', label: 'True positive' },
+                                { id: 'false_positive', label: 'False positive' },
+                                { id: 'unsure', label: 'Unsure' },
+                              ] as const
+                            ).map(btn => {
+                              const selected = feedbackSent === btn.id;
+                              return (
+                                <button
+                                  key={btn.id}
+                                  type="button"
+                                  disabled={submittingFeedback}
+                                  onClick={() => handleFeedback(btn.id)}
+                                  className="px-3.5 py-2 min-h-[44px] rounded-lg text-xs font-mono border transition-colors duration-150"
+                                  style={{
+                                    background: selected ? '#17144F' : '#EDF0F7',
+                                    color: selected ? '#EDF0F7' : '#17144F',
+                                    borderColor: selected ? '#17144F' : 'rgba(23,20,79,0.18)',
+                                    cursor: submittingFeedback ? 'not-allowed' : 'pointer',
+                                    fontFamily: 'DM Mono, monospace',
+                                  }}
+                                >
+                                  {btn.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {feedbackSent && (
+                            <p className="mt-3 text-xs font-mono" style={{ color: '#147564', fontFamily: 'DM Mono, monospace' }} role="status">
+                              Feedback recorded ({feedbackSent.replace('_', ' ')})
+                            </p>
+                          )}
+                          {feedbackError && (
+                            <p className="mt-3 text-xs font-mono" style={{ color: '#B8332E', fontFamily: 'DM Mono, monospace' }} role="alert">
+                              {feedbackError}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
