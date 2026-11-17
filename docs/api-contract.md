@@ -1,4 +1,4 @@
-# Praman B2B Crypto Wallet Risk Screening API
+# Tathya B2B Financial Risk Intelligence API
 
 ## API Contract
 
@@ -166,6 +166,32 @@ Download a generated PDF report.
 - Two URL styles supported: `/v1/reports/{report_id}.pdf` and `/v1/reports/{report_id}/pdf`.
 - Unknown report ID returns 404 `report_not_found`.
 
+#### GET /v1/reports/{report_id}/summary
+**Authentication:** Requires `X-API-Key` header.
+
+Return a text summary of a stored report, built only from the stored report with templates, no LLM text.
+
+**Response (200):**
+```json
+{
+  "report_id": "a1b2c3d4e5f6a7b8",
+  "data_mode": "fixture" or "live",
+  "headline": "Risk Report for 0x... – Score: 87 (severe) (sample data)",
+  "paragraphs": [
+    {"code": "SANCTIONS_MATCH", "weight": 60, "detail": "Matched the demo sanctions file (synthetic entry, not real OFAC data)"},
+    {"code": "MIXER_EXPOSURE", "weight": 27, "detail": "Demo fixture: mixer share 35% (demo fixture)"}
+  ],
+  "recommended_steps": "Escalate to the compliance officer; do not proceed until reviewed.",
+  "disclaimer": "Draft generated from rules over the data shown. A human compliance officer must review. Not legal advice."
+}
+```
+
+- **Unknown report ID** returns 404 `report_not_found`.
+- Headline mentions the address, score and band; adds `(sample data)` when `data_mode` is `fixture`.
+- Paragraphs: one per reason with its code, weight and detail.
+- Recommended steps by band: low `"Routine monitoring."`; medium `"Manual review by an analyst."`; high `"Enhanced due diligence by a compliance officer."`; severe `"Escalate to the compliance officer; do not proceed until reviewed."`
+- Disclaimer: `"Draft generated from rules over the data shown. A human compliance officer must review. Not legal advice."`
+
 #### GET /v1/reports/{report_id}/approval
 Get approval status for a report.
 
@@ -263,7 +289,26 @@ Verify the audit log chain integrity.
   "entries": 2
 }
 ```
+
 Missing or empty log returns `{"valid": true, "entries": 0}`.
+
+#### GET /v1/audit/entries
+**Authentication:** Requires `X-API-Key` header.
+
+**Query Parameters:**
+- `limit` (integer, 1-100, default 20): Maximum number of entries to return. Returns 422 if outside range.
+
+**Response (200):**
+```json
+{
+  "entries": [
+    {"index": 1, "ts": "2024-01-15T10:30:00Z", "address": "0x...", "score": 87, "prev_hash": "", "entry_hash": "abc123"}
+  ],
+  "total": 1
+}
+```
+
+Empty log -> `{"entries":[],"total":0}`.
 
 ### Error Responses
 All errors return exactly `{"error": "<code>", "message": "<text>"}`:
@@ -281,6 +326,7 @@ All errors return exactly `{"error": "<code>", "message": "<text>"}`:
 ### CORS
 - `expose_headers=["X-Report-SHA256", "X-Request-ID"]`
 - Allowed origins: `http://localhost:5173`, `http://127.0.0.1:5173`, `http://127.0.0.1:3000`
+- Extra allowed origins read from env `ALLOWED_ORIGINS` (comma-separated, trimmed, empty items ignored). Added to the existing localhost origins. `*` never allowed.
 
 ### PDF Footer
 The PDF report includes the footer text: `"DRAFT: not a compliance decision; requires review by a human compliance officer."` on the single-page report.

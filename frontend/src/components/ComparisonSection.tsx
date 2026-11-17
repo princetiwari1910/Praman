@@ -12,7 +12,7 @@ const COLUMNS = [
     side: 'left',
   },
   {
-    label: 'Praman',
+    label: 'Tathya',
     items: [
       'Built for lean compliance and engineering teams',
       'REST API live in an afternoon',
@@ -57,7 +57,7 @@ export function ComparisonSection() {
             Built for teams that enterprise tools overlook.
           </h2>
           <p className="mt-4 text-lg max-w-2xl" style={{ color: 'rgba(237,240,247,0.8)' }}>
-            Most wallet screening tools were built for Tier-1 banks. Praman is built for the teams
+            Most wallet screening tools were built for Tier-1 banks. Tathya is built for the teams
             actually doing the work at crypto-native companies and fintechs.
           </p>
         </div>

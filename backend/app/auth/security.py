@@ -10,7 +10,7 @@ import time
 from typing import Any
 import httpx
 
-JWT_SECRET = os.getenv("JWT_SECRET", "praman-secret-key-change-in-production-2026")
+JWT_SECRET = os.getenv("JWT_SECRET", "tathya-secret-key-change-in-production-2026")
 JWT_ALGORITHM = "HS256"
 
 

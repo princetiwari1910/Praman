@@ -26,7 +26,7 @@ export function Navbar() {
           onClick={() => navigate('/')}
           className="text-xl font-black min-h-[44px] px-1 inline-flex items-center"
           style={{ color: '#EDF0F7', fontFamily: 'Syne Variable, Syne, sans-serif', background: 'none', border: 'none', cursor: 'pointer' }}
-          aria-label="Praman home"
+          aria-label="Tathya home"
         >
           {BRAND.name}
           <span style={{ color: '#F2A93B', marginLeft: '2px' }}>.</span>

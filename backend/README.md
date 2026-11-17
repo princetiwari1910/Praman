@@ -1,4 +1,4 @@
-# Praman backend
+# Tathya backend
 
 Setup (project venv at the repo root):
 

@@ -4,15 +4,15 @@ import { AnimatePresence, motion } from 'motion/react';
 
 const FAQS = [
   {
-    q: 'Does Praman file regulatory reports?',
-    a: 'No. Praman drafts case summaries for a human analyst to review and approve. Regulatory filing remains entirely with your team.',
+    q: 'Does Tathya file regulatory reports?',
+    a: 'No. Tathya drafts case summaries for a human analyst to review and approve. Regulatory filing remains entirely with your team.',
   },
   {
-    q: 'Does Praman hold funds?',
-    a: 'No. Praman never touches funds. It reads on-chain data and returns a risk assessment — no custody, no transactions, no access to private keys.',
+    q: 'Does Tathya hold funds?',
+    a: 'No. Tathya never touches funds. It reads on-chain data and returns a risk assessment — no custody, no transactions, no access to private keys.',
   },
   {
-    q: 'What blockchains does Praman support?',
+    q: 'What blockchains does Tathya support?',
     a: 'Ethereum and EVM-compatible chains (Polygon, Arbitrum, Base, BNB Chain) are live today. Bitcoin support is in private beta. Additional chains are added based on design partner feedback.',
   },
   {
@@ -25,11 +25,11 @@ const FAQS = [
   },
   {
     q: 'What is a "design partner"?',
-    a: 'A design partner gets early API access, helps shape the product roadmap, and receives preferred pricing when Praman reaches general availability. In return, we ask for regular feedback sessions.',
+    a: 'A design partner gets early API access, helps shape the product roadmap, and receives preferred pricing when Tathya reaches general availability. In return, we ask for regular feedback sessions.',
   },
   {
-    q: 'Is Praman legal advice?',
-    a: 'No. Praman provides screening signals to support your compliance team\'s review. It is not legal advice and is not affiliated with any government body or regulator.',
+    q: 'Is Tathya legal advice?',
+    a: 'No. Tathya provides screening signals to support your compliance team\'s review. It is not legal advice and is not affiliated with any government body or regulator.',
   },
 ];
 

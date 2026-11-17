@@ -7,9 +7,9 @@ import re
 import json
 import time
 from datetime import datetime, timezone
-from pathlib import Path as _Path
 from fastapi import APIRouter, Path as _FastAPIPath, HTTPException, status, Depends, Request
 from starlette.responses import JSONResponse, StreamingResponse
+from pathlib import Path as _PathlibPath
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.dependencies import require_api_key
 
@@ -313,7 +313,7 @@ async def reports_evidence_get(
     sha256 = hashlib.sha256(report_json.encode()).hexdigest()
 
     return {
-        "format": "praman-evidence-v1",
+        "format": "tathya-evidence-v1",
         "data_mode": evaluation["data_mode"],
         "report": report_data,
         "sha256": sha256,
@@ -337,10 +337,10 @@ def _build_report_pdf(address: str, evaluation: dict, generated_at: str) -> byte
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=letter, invariant=1)
-    c.setTitle("Praman Risk Report")
+    c.setTitle("Tathya Risk Report")
 
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, 750, "Praman - Crypto Wallet Risk Report")
+    c.drawString(50, 750, "Tathya - Financial Risk Intelligence Report")
     c.setFont("Helvetica", 10)
     c.drawString(50, 730, f"Address: {address}")
     c.drawString(50, 710, f"Score: {score} ({band})")
@@ -554,13 +554,14 @@ async def explain_get(
 def _write_audit_entry(address: str, score: int) -> None:
     """Append an audit entry to the audit log file."""
     from app.state import reports
-    project_root = _Path(__file__).resolve().parent.parent
-    audit_log = project_root / "audit" / "audit.log"
-    audit_log.parent.mkdir(parents=True, exist_ok=True)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = base_dir
+    audit_log = os.path.join(project_root, "audit", "audit.log")
+    os.makedirs(os.path.dirname(audit_log), exist_ok=True)
     entry_index = len(reports) + 1
     ts = datetime.now(timezone.utc).isoformat()
     prev_hash = ""
-    if audit_log.exists():
+    if os.path.exists(audit_log):
         with open(audit_log) as f:
             lines = f.readlines()
             if lines:
@@ -604,10 +605,13 @@ async def audit_entries_get(
     entries = []
     total = 0
 
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    audit_log = os.path.join(base_dir, "audit", "audit.log")
+    # Try to find audit.log relative to the project root
+    # Project root is three directories up from app/routers/risk.py
+    import os as _os
+    risk_file = _os.path.abspath(_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))))
+    audit_log = _os.path.join(risk_file, "audit", "audit.log")
 
-    if os.path.exists(audit_log):
+    if _os.path.exists(audit_log):
         with open(audit_log) as f:
             lines = f.readlines()
             total = len(lines)

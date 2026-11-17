@@ -25,16 +25,18 @@ def _load_sanctions() -> None:
         return
 
     # Try sanctions.json first, then fall back to sanctions_sample.json
-    # sanctions.json from load_ofac.py has {"source", "loaded_at", "count", "addresses":[...]}
-    # sanctions_sample.json has {"0x...: "fake demo entry"}
+    # If both missing, use empty set (never raise)
     found = False
     for path, fmt_name in [
         (_DATA_DIR / "sanctions.json", "sanctions.json"),
         (_DATA_DIR / "sanctions_sample.json", "sanctions_sample.json"),
     ]:
         if path.exists():
-            with open(path) as f:
-                data = json.load(f)
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+            except (OSError, PermissionError, json.JSONDecodeError):
+                continue
             # Handle new format (load_ofac.py): has "addresses" key
             if isinstance(data, dict) and "addresses" in data:
                 _sanctions_addresses = {a.lower() for a in data["addresses"]}
@@ -44,7 +46,7 @@ def _load_sanctions() -> None:
             found = True
             break
 
-    # Always include the synthetic fixture 0x2222...2222
+    # Always include the synthetic fixture 0x2222...2222 if we have any addresses
     if _sanctions_addresses is not None:
         _sanctions_addresses = _sanctions_addresses | {_SYNTHETIC_FIXTURE.lower()}
 
@@ -56,9 +58,11 @@ def _load_sanctions() -> None:
             "using_sample": fmt_name == "sanctions_sample.json",
         }
     else:
+        # Both files missing/unreadable – use empty set
+        _sanctions_addresses = set()
         _loading_info = {
             "source": "synthetic_fixture",
-            "count": 1,
+            "count": 0,
             "loaded_at": datetime.now(timezone.utc).isoformat(),
             "using_sample": True,
         }

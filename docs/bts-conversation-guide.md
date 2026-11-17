@@ -29,7 +29,7 @@
 **Response:**
 > "Totally fair — enterprise vendors have been around for years, and they're built for Tier-1 banks with large compliance departments and big annual contracts.  
 > When we talk to smaller crypto and fintech teams, we hear two things: either those enterprise tools are too expensive and slow to integrate, or the score comes back as a black box and the analyst still has to spend significant time investigating why.  
-> Praman is built specifically for lean teams: one REST call, transparent rule weights that add up to the score, and a draft case summary alongside the result. We're not trying to replace a bank's full compliance suite — we're giving growing teams explainable screening they can integrate in an afternoon."
+> Tathya is built specifically for lean teams: one REST call, transparent rule weights that add up to the score, and a draft case summary alongside the result. We're not trying to replace a bank's full compliance suite — we're giving growing teams explainable screening they can integrate in an afternoon."
 
 ---
 
@@ -38,8 +38,8 @@
 **Prospect:** *"Does this handle FIU compliance, or file reports for us?"*
 
 **Response (strictly stick to this):**
-> "No — Praman is a **screening and case-drafting tool**. It surfaces on-chain risk signals and drafts structured summaries for human review.  
-> Your **compliance officer stays fully responsible** for reviewing the evidence, making the final risk decision, and handling any regulatory filings. Praman is not legal advice and is not affiliated with any government body or regulator."
+> "No — Tathya is a **screening and case-drafting tool**. It surfaces on-chain risk signals and drafts structured summaries for human review.  
+> Your **compliance officer stays fully responsible** for reviewing the evidence, making the final risk decision, and handling any regulatory filings. Tathya is not legal advice and is not affiliated with any government body or regulator."
 
 ---
 

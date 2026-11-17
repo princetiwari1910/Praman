@@ -1,6 +1,6 @@
-AGENTS.md — Praman B2B Crypto Wallet Risk Screening API
+AGENTS.md — Tathya B2B Financial Risk Intelligence API
 
-This file guides agents (AI code assistants) working on the Praman project.
+This file guides agents (AI code assistants) working on the Tathya project.
 
 RULES
 1. Python 3.11+ only.

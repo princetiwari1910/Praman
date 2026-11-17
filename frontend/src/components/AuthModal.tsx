@@ -181,7 +181,7 @@ export function AuthModal() {
             style={{ fontFamily: 'Syne Variable, Syne, sans-serif', color: '#EDF0F7' }}
             id="auth-modal-title"
           >
-            Praman<span style={{ color: '#F2A93B' }}>.</span>
+            Tathya<span style={{ color: '#F2A93B' }}>.</span>
           </div>
           <p className="text-xs text-slate-400">
             {authModalMode === 'login'

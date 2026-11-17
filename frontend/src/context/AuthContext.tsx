@@ -20,16 +20,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const TOKEN_KEY = 'praman_auth_token';
-const USER_KEY = 'praman_auth_user';
+const TOKEN_KEY = 'tathya_auth_token';
+const USER_KEY = 'tathya_auth_user';
+const LEGACY_TOKEN_KEY = 'praman_auth_token';
+const LEGACY_USER_KEY = 'praman_auth_user';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY);
   });
   const [user, setUser] = useState<User | null>(() => {
     if (typeof window === 'undefined') return null;
-    const saved = localStorage.getItem(USER_KEY);
+    const saved = localStorage.getItem(USER_KEY) || localStorage.getItem(LEGACY_USER_KEY);
     try {
       return saved ? JSON.parse(saved) : null;
     } catch {
@@ -62,13 +65,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_USER_KEY);
   }, []);
 
   // Verify session on initial load
   useEffect(() => {
     let mounted = true;
     async function initAuth() {
-      const savedToken = localStorage.getItem(TOKEN_KEY);
+      const savedToken = localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY);
       if (!savedToken) {
         if (mounted) setIsLoading(false);
         return;

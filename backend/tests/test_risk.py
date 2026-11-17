@@ -94,7 +94,7 @@ def test_report_pdf_and_evidence():
     )
     assert ev_resp.status_code == 200
     ev_data = ev_resp.json()
-    assert ev_data["format"] == "praman-evidence-v1"
+    assert ev_data["format"] == "tathya-evidence-v1"
     assert "report" in ev_data
     assert "sha256" in ev_data
     assert "canonicalization" in ev_data

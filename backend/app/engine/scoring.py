@@ -197,7 +197,7 @@ def evaluate_wallet(
     """Evaluate a wallet address and return risk data dict.
 
     In live mode, fetches data from Etherscan via live.fetch_wallet().
-    Falls back to fixture data if live fetch fails.
+    Falls back to fixture data if live fetch fails (any exception, not only LiveError).
     """
     # Determine if we should use live mode
     use_live = (
@@ -212,10 +212,10 @@ def evaluate_wallet(
     if use_live:
         try:
             wallet_data = live.fetch_wallet(address)
-        except live.LiveError as e:
-            # Fall back to fixture data
+        except Exception:
+            # Fall back to fixture data for any exception (network, cache, etc.)
             wallet_data = _fixture_data_for_address(address)
-            data_note = f"Live lookup failed ({e.code}); showing fixture data."
+            data_note = "Live lookup failed; showing fixture data."
             use_live = False
     else:
         # Use fixture data
@@ -287,11 +287,11 @@ def _fixture_data_for_address(address: str) -> dict:
             "tx_count_30d": 30,
             "mixer_share_pct": 5.0,
             "counterparties": [
-                {"id": "addr_4", "label": "random_address", "risk": "medium", "volume": 10.0},
+                {"id": "addr_4", "label": "sample counterparty (fake)", "risk": "medium", "volume": 10.0},
             ],
             "graph": {
                 "nodes": [
-                    {"id": "addr_4", "label": "random_address", "risk": "medium"},
+                    {"id": "addr_4", "label": "sample counterparty (fake)", "risk": "medium"},
                     {"id": "addr_5", "label": "0xbbbb...bbbb", "risk": "medium"},
                 ],
                 "edges": [{"source": "addr_4", "target": "addr_5", "value": 10.0}],

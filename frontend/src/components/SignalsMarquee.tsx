@@ -49,7 +49,7 @@ export function SignalsMarquee() {
     <section
       className="py-20"
       style={{ background: '#17144F', borderTop: '1px solid rgba(237,240,247,0.08)', borderBottom: '1px solid rgba(237,240,247,0.08)' }}
-      aria-label="Risk signals Praman checks"
+      aria-label="Risk signals Tathya checks"
     >
       <div className="max-w-7xl mx-auto px-6 mb-10">
         <span className="text-sm" style={{ color: 'rgba(237,240,247,0.7)', fontFamily: 'DM Mono, monospace' }}>

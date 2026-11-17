@@ -1,6 +1,8 @@
-# Praman — Pitch Outline (Ten Slides)
+# Tathya — Pitch Outline (Ten Slides)
 
-> **Tagline:** Explainable risk screening for crypto and fintech.  
+> **Brand:** TATHYA (तथ्य — Facts, truth, and evidence)  
+> **Category:** Financial Risk Intelligence  
+> **Tagline:** Facts Behind Every Risk.  
 > **Core idea:** Every risk score comes with proof (the explicit reason codes behind the score).
 
 ---
@@ -11,13 +13,13 @@
 - Building in-house requires maintaining entity labels, graph traversal, and audit logs — pulling engineers away from core product work.
 
 ## Slide 2: Solution
-- **Praman** is a B2B REST API (`GET /v1/risk/{chain}/{address}`) that screens crypto wallets and returns:
+- **Tathya** is a B2B REST API (`GET /v1/risk/{chain}/{address}`) that screens crypto wallets and returns:
   - A **0–100 risk score** and risk band (`low`, `medium`, `high`, `severe`).
   - **Weighted reason codes** (`code`, `title`, `weight`, `detail`) that visibly sum to the score.
   - A **fund-flow graph** (`nodes`, `edges`) and a **downloadable PDF case summary** with SHA-256 hash.
 
 ## Slide 3: Live Demo
-- Walkthrough at `http://127.0.0.1:5173/demo` (demo runs on sample data; live mode uses a free Etherscan key):
+- Walkthrough at `https://praman.princetiwari.tech/demo` (demo runs on sample data; live mode uses a free Etherscan key):
   - Screen `0x2222222222222222222222222222222222222222` → score `87` (`severe`), `sanctions_hit: true`, `SANCTIONS_MATCH (+60) + MIXER_EXPOSURE (+27)`.
   - Screen `0x1111111111111111111111111111111111111111` → score `12` (`low`), `sanctions_hit: false`, `NEW_WALLET (+12)`.
   - Generate PDF report (`POST /v1/reports`) and inspect the API-returned SHA-256 digest + Hardhat local testnet attestation commands.
@@ -41,7 +43,7 @@
 ## Slide 6: India-First Focus
 - Built with Indian crypto platforms, cross-border fintechs, and Web3 teams in mind (starting out of Bengaluru).
 - Designed as a **screening and case-drafting tool**: it surfaces signals and drafts summaries, while your compliance officer stays responsible for final decisions and regulatory filings.
-- Praman is not legal advice and is not affiliated with any government body.
+- Tathya is not legal advice and is not affiliated with any government body.
 
 ## Slide 7: Business Model Hypotheses
 *(Hypotheses to validate with design partners — not finalized pricing)*

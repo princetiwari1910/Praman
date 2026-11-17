@@ -474,7 +474,7 @@ export function Demo() {
         const expected = Math.min(100, weightSum);
         if (data.score !== expected) {
           console.warn(
-            `[Praman] Score mismatch for ${data.address}: score=${data.score}, min(100, sum(weights))=${expected}`
+            `[Tathya] Score mismatch for ${data.address}: score=${data.score}, min(100, sum(weights))=${expected}`
           );
         }
       }
@@ -564,7 +564,7 @@ export function Demo() {
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
-      a.download = `praman-report-${result.address.slice(0, 10)}.pdf`;
+      a.download = `tathya-report-${result.address.slice(0, 10)}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -845,7 +845,7 @@ export function Demo() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'praman-batch-results.csv';
+    a.download = 'tathya-batch-results.csv';
     document.body.appendChild(a);
     a.click();
     a.remove();

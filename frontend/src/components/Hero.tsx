@@ -61,7 +61,7 @@ function ProofSeal({ visible, reduced }: { visible: boolean; reduced: boolean })
         />
         <text fontFamily="DM Mono, monospace" fontSize="8" fill="#F2A93B" letterSpacing="3">
           <textPath href="#seal-text-path" startOffset="5%">
-            PRAMAN · PROOF · REASONS ·
+            TATHYA · FACTS · PROOF · EVIDENCE ·
           </textPath>
         </text>
       </svg>
@@ -282,20 +282,24 @@ export function Hero() {
           {/* Left: copy */}
           <div>
             <span
-              className="inline-block text-sm mb-6"
-              style={{ color: '#1D9C86', fontFamily: 'DM Mono, monospace' }}
+              className="inline-block text-xs uppercase tracking-widest px-3 py-1 rounded-full mb-6 border"
+              style={{
+                color: '#F2A93B',
+                borderColor: 'rgba(242, 169, 59, 0.3)',
+                background: 'rgba(242, 169, 59, 0.08)',
+                fontFamily: 'DM Mono, monospace',
+              }}
             >
-              — risk intelligence
+              Tathya — Financial Risk Intelligence
             </span>
             <h1
               className="text-5xl lg:text-6xl xl:text-7xl font-black leading-[1.05] mb-6"
               style={{ color: '#EDF0F7', fontFamily: 'Syne Variable, Syne, sans-serif' }}
             >
-              Every risk score comes with proof.
+              Facts Behind Every Risk.
             </h1>
             <p className="text-lg mb-10 max-w-lg leading-relaxed" style={{ color: 'rgba(237,240,247,0.7)' }}>
-              {BRAND.name} screens crypto wallets and returns a score with the evidence behind it —
-              built for compliance teams that need answers, not just numbers.
+              Explainable risk screening for crypto and fintech. {BRAND.name} screens wallets and returns transparent scores with the facts and verifiable reason codes behind them.
             </p>
 
             <div className="flex flex-wrap gap-4">

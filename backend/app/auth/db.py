@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 DB_DIR = Path(__file__).resolve().parent.parent / "data"
-DB_PATH = DB_DIR / "praman.db"
+DB_PATH = DB_DIR / "tathya.db"
+LEGACY_DB_PATH = DB_DIR / "praman.db"
 
 
 def get_db_connection() -> sqlite3.Connection:
     DB_DIR.mkdir(parents=True, exist_ok=True)
+    if not DB_PATH.exists() and LEGACY_DB_PATH.exists():
+        try:
+            shutil.copy2(LEGACY_DB_PATH, DB_PATH)
+        except Exception:
+            pass
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn

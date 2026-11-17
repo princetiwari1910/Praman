@@ -1,12 +1,24 @@
-# Praman
+# TATHYA
 
-> **Explainable risk screening for crypto and fintech. Every risk score comes with proof.**
+> **Financial Risk Intelligence — Facts Behind Every Risk.**  
+> *तथ्य — Facts, truth, and evidence.*  
+> Explainable risk screening for crypto and fintech. Every risk score comes with proof.
 
-Praman evaluates wallet addresses against deterministic risk rules, providing transparent breakdowns of risk factors, counterfactual analysis, fund-flow graph visualizations, verifiable evidence packs, and tamper-evident audit trails. It never holds or moves funds.
+Tathya evaluates wallet addresses against deterministic risk rules, providing transparent breakdowns of risk factors, counterfactual analysis, fund-flow graph visualizations, verifiable evidence packs, and tamper-evident audit trails. It never holds or moves funds.
 
 🌐 **Live Application:** [https://praman.princetiwari.tech](https://praman.princetiwari.tech)  
 🚀 **Interactive Demo:** [https://praman.princetiwari.tech/demo](https://praman.princetiwari.tech/demo)  
 ⚡ **API Endpoint:** [https://praman-kljk.onrender.com](https://praman-kljk.onrender.com)
+
+---
+
+## Product Architecture
+
+- **Tathya Risk Engine:** Deterministic, rules-based heuristic scoring engine that evaluates addresses without opaque black-box models.
+- **Tathya API:** Enterprise REST interface providing `/v1/risk`, `/v1/explain`, `/v1/batch`, and `/v1/reports` endpoints.
+- **Tathya Intelligence:** Curated sanctions intelligence, mixer cluster detection, entity tagging, and graph-traversal exposure signals.
+- **Tathya Evidence Reports:** Downloadable, cryptographically signed PDF case memos and JSON evidence packs with SHA-256 canonical digests.
+- **Tathya Verify:** Independent offline verification script (`python scripts/verify_evidence.py`) and SHA-256 hash-chained audit verification.
 
 ---
 
@@ -34,8 +46,8 @@ Praman evaluates wallet addresses against deterministic risk rules, providing tr
 - **Rules, not machine learning:** Scoring is calculated strictly from deterministic heuristics and integer rule weights, not opaque black-box machine learning models.
 - **No accuracy claim:** There is no accuracy claim; scores reflect synthetic fixture rules rather than real-world benchmark evaluations.
 - **Not legal advice:** Risk indicators and scores are informational only and do not constitute legal advice or regulatory guidance.
-- **Not affiliated with any government body:** Praman is an independent open-source project and is not affiliated with, endorsed by, or connected to any government agency.
-- **Not a compliance product:** Praman is an experimental screening and drafting prototype. It is not an automated decision system; a human compliance officer always makes final determinations.
+- **Not affiliated with any government body:** Tathya is an independent open-source project and is not affiliated with, endorsed by, or connected to any government agency.
+- **Not a compliance product:** Tathya is an experimental screening and drafting prototype. It is not an automated decision system; a human compliance officer always makes final determinations.
 
 ---
 
@@ -58,11 +70,11 @@ Praman evaluates wallet addresses against deterministic risk rules, providing tr
                      | Same-origin /v1/* Rewrite                                      | Client-Side SDK
                      v                                                                v
 +--------------------------------------------------------------+    +------------------------------------+
-|                   FastAPI Backend Web Service                |    |      Google Identity Services      |
+|                   Tathya FastAPI Backend Web Service         |    |      Google Identity Services      |
 |              https://praman-kljk.onrender.com                |    |         (OAuth 2.0 Auth)           |
 +------------------------------+-------------------------------+    +------------------------------------+
-|  • Auth Router (/v1/auth)    |  • SQLite User Store (praman.db)
-|  • Risk Engine (/v1/risk)    |  • Hash-Chained Audit Trail
+|  • Auth Router (/v1/auth)    |  • SQLite User Store (tathya.db)
+|  • Tathya Risk Engine        |  • Hash-Chained Audit Trail
 |  • ReportLab PDF Generator   |  • Sanctions File Cache
 +------------------------------+-------------------------------+
                                | Attestation Hash
@@ -87,7 +99,7 @@ Praman evaluates wallet addresses against deterministic risk rules, providing tr
 | Variable | Description | Default |
 |---|---|---|
 | `API_KEYS` | Comma-separated list of accepted `X-API-Key` headers | Required |
-| `JWT_SECRET` | Secret key used to sign and verify user session JWTs | `praman-secret-key-change-in-production-2026` |
+| `JWT_SECRET` | Secret key used to sign and verify user session JWTs | `tathya-secret-key-change-in-production-2026` |
 | `USE_FIXTURES` | Set `true` to use synthetic fixtures, `false` for live queries | `true` |
 | `ETHERSCAN_API_KEY` | Etherscan API key for live wallet transaction lookups | Optional |
 | `QUOTA` | Maximum allowed screening calls per API key | `100` |
@@ -96,7 +108,7 @@ Praman evaluates wallet addresses against deterministic risk rules, providing tr
 | Variable | Description | Default |
 |---|---|---|
 | `VITE_API_BASE_URL` | Base URL for FastAPI backend (empty in prod for same-origin proxy) | `""` |
-| `VITE_API_KEY` | Praman API key for screening endpoints | Required |
+| `VITE_API_KEY` | Tathya API key for screening endpoints | Required |
 | `VITE_GOOGLE_CLIENT_ID` | Google Cloud OAuth 2.0 Web Client ID | Optional |
 
 ---

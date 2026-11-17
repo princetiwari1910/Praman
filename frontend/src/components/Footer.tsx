@@ -99,7 +99,7 @@ export function Footer() {
           role="note"
         >
           <strong style={{ color: '#EDF0F7' }}>Disclaimer: </strong>
-          Screening signals support human review; not legal advice. Praman is not affiliated with
+          Screening signals support human review; not legal advice. Tathya is not affiliated with
           any government body or regulator. Risk scores are informational only.
         </div>
 

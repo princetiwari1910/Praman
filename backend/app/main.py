@@ -78,13 +78,19 @@ async def lifespan(app: FastAPI):
     
     yield  # Wait for app to shut down
 
-app = FastAPI(title="Praman B2B Crypto Wallet Risk Screening API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Tathya B2B Financial Risk Intelligence API",
+    description="Explainable risk screening for crypto and fintech. Facts Behind Every Risk.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 # CORS configuration
 default_cors_origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://praman.princetiwari.tech",
+    "https://tathya.princetiwari.tech",
     "https://praman-kljk.onrender.com",
 ]
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
@@ -220,7 +226,7 @@ async def health_root():
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Praman API is running"}
+    return {"status": "ok", "message": "Tathya API is running"}
 
 
 # /v1/health – no auth required

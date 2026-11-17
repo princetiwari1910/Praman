@@ -1,7 +1,7 @@
 {
-  "name": "contracts",
+  "name": "tathya-contracts",
   "version": "1.0.0",
-  "description": "Praman AttestationRegistry Hardhat project",
+  "description": "Tathya AttestationRegistry Hardhat project",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",

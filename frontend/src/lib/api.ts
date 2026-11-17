@@ -57,7 +57,9 @@ export async function apiFetch(
     headers.set('X-API-Key', apiKey);
   }
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('praman_auth_token') : null;
+  const token = typeof window !== 'undefined'
+    ? localStorage.getItem('tathya_auth_token') || localStorage.getItem('praman_auth_token')
+    : null;
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }

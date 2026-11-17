@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Verify a Praman evidence JSON file.
+"""Verify a Tathya evidence JSON file.
 
 Usage: python scripts/verify_evidence.py <evidence.json>
 
 Checks, each printed as PASS or FAIL:
-  - format is praman-evidence-v1
+  - format is tathya-evidence-v1 (or praman-evidence-v1)
   - recomputed sha256 equals "sha256" field
   - score == min(100, sum of reason weights)
   - band matches the score using "bands" from the file
@@ -36,9 +36,9 @@ def main():
 
     failures = []
 
-    # 1. format is praman-evidence-v1
-    fmt_ok = data.get("format") == "praman-evidence-v1"
-    failures.append(("format is praman-evidence-v1", fmt_ok))
+    # 1. format is tathya-evidence-v1 or praman-evidence-v1
+    fmt_ok = data.get("format") in ("tathya-evidence-v1", "praman-evidence-v1")
+    failures.append(("format is tathya-evidence-v1", fmt_ok))
 
     # 2. recomputed sha256 equals "sha256"
     sha256_ok = False

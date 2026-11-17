@@ -10,7 +10,7 @@ const STAGES = [
     id: 'collect',
     step: '01',
     title: 'Collect signals',
-    body: 'Praman pulls on-chain data: transaction history, counterparty exposure, mixer contacts, exchange labels, and jurisdiction flags.',
+    body: 'Tathya pulls on-chain data: transaction history, counterparty exposure, mixer contacts, exchange labels, and jurisdiction flags.',
   },
   {
     id: 'score',
@@ -93,7 +93,7 @@ export function ScrollStory() {
       ref={sectionRef}
       className="relative py-20 md:py-0"
       style={{ background: '#EDF0F7' }}
-      aria-label="How Praman works"
+      aria-label="How Tathya works"
     >
       <div className="md:min-h-screen flex items-center max-w-7xl mx-auto px-6 w-full">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 w-full items-center">
