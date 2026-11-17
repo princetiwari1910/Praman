@@ -4,6 +4,7 @@ import hashlib
 import logging
 import json
 import os
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, Request, Depends
@@ -19,6 +20,22 @@ from app.routers.risk import router as risk_router
 from app.routers.auth import router as auth_router
 from app.auth.db import init_db
 from app.engine.sanctions import info as sanctions_info
+
+
+def safe_write_text(path: Path, content: str) -> bool:
+    """Write text to a file, creating parent dirs if needed.
+
+    Returns True on success, False on failure (logs warning, does not raise).
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return True
+    except (OSError, PermissionError):
+        logging.getLogger(__name__).warning(
+            "Failed to write %s", path, exc_info=True
+        )
+        return False
 
 
 def load_config():
@@ -137,6 +154,11 @@ def starlette_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 def generic_exception_handler(request: Request, exc: Exception):
+    # Log full traceback with X-Request-ID
+    request_id = getattr(request, "headers", {}).get("x-request-id", "unknown")
+    logging.getLogger(__name__).exception(
+        "Internal server error (request_id: %s)", request_id
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"error": "internal_error", "message": "Unexpected server error"},
@@ -191,6 +213,7 @@ async def health_root():
         "status": "ok",
         "data_mode": "fixture",
         "quota": QUOTA,
+        "version": "v1.1-fix",
     }
 
 
@@ -261,16 +284,14 @@ async def dev_reset(request: Request):
     from app.state import usage, reports, reset
     reset()
     
-    # Truncate audit log file
+    # Truncate audit log file (resilient)
     project_root = Path(__file__).resolve().parent.parent
     audit_log = project_root / "audit" / "audit.log"
-    with open(audit_log, "w") as f:
-        pass  # truncate
+    safe_write_text(audit_log, "")
     
-    # Truncate approvals.jsonl
+    # Truncate approvals.jsonl (resilient)
     approvals_log = project_root / "data" / "approvals.jsonl"
-    with open(approvals_log, "w") as f:
-        pass  # truncate
+    safe_write_text(approvals_log, "")
     
     return {"status": "reset"}
 
@@ -302,7 +323,7 @@ async def feedback_endpoint(request: Request):
     data_dir = project_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Append to feedback log
+    # Append to feedback log (resilient)
     log_entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "address": address,
@@ -310,7 +331,16 @@ async def feedback_endpoint(request: Request):
         "key_hash": key_hash,
     }
     log_path = data_dir / "feedback.jsonl"
-    with open(log_path, "a") as f:
-        f.write(json.dumps(log_entry) + "\n")
+    safe_write_text(log_path, "")
+
+    # The actual append - we need to handle this differently since safe_write_text
+    # overwrites. Append by reading existing content first.
+    existing = ""
+    try:
+        existing = log_path.read_text(encoding="utf-8")
+    except (OSError, PermissionError):
+        existing = ""
+    appended = existing + json.dumps(log_entry) + "\n"
+    safe_write_text(log_path, appended)
 
     return {"status": "recorded"}
