@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import shutil
 import uuid
@@ -42,6 +43,27 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS investigations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                address TEXT NOT NULL,
+                chain TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                band TEXT NOT NULL,
+                sanctions_hit INTEGER NOT NULL DEFAULT 0,
+                data_mode TEXT NOT NULL,
+                reasons_json TEXT NOT NULL,
+                graph_json TEXT,
+                report_sha256 TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_investigations_user ON investigations(user_id);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_investigations_created ON investigations(created_at DESC);")
         conn.commit()
 
         # Idempotent migration from legacy praman.db if it exists
@@ -177,3 +199,109 @@ def upsert_google_user(
                 auth_provider="google",
                 google_id=google_id,
             )
+
+
+def create_investigation(
+    user_id: str,
+    address: str,
+    chain: str,
+    score: int,
+    band: str,
+    sanctions_hit: bool,
+    data_mode: str,
+    reasons: list,
+    graph: dict | None = None,
+    report_sha256: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    inv_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    reasons_str = json.dumps(reasons)
+    graph_str = json.dumps(graph) if graph else None
+
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO investigations (
+                id, user_id, address, chain, score, band, sanctions_hit,
+                data_mode, reasons_json, graph_json, report_sha256, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                inv_id,
+                user_id,
+                address.strip().lower(),
+                chain.strip().lower(),
+                score,
+                band.strip().lower(),
+                1 if sanctions_hit else 0,
+                data_mode.strip(),
+                reasons_str,
+                graph_str,
+                report_sha256,
+                notes,
+                now,
+            ),
+        )
+        conn.commit()
+
+    return get_investigation_by_id(inv_id, user_id)  # type: ignore[return-value]
+
+
+def list_investigations_by_user(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM investigations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        )
+        rows = cursor.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["sanctions_hit"] = bool(d["sanctions_hit"])
+            try:
+                d["reasons"] = json.loads(d["reasons_json"])
+            except Exception:
+                d["reasons"] = []
+            try:
+                d["graph"] = json.loads(d["graph_json"]) if d["graph_json"] else None
+            except Exception:
+                d["graph"] = None
+            d.pop("reasons_json", None)
+            d.pop("graph_json", None)
+            result.append(d)
+        return result
+
+
+def get_investigation_by_id(investigation_id: str, user_id: str) -> dict[str, Any] | None:
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM investigations WHERE id = ? AND user_id = ?",
+            (investigation_id, user_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["sanctions_hit"] = bool(d["sanctions_hit"])
+        try:
+            d["reasons"] = json.loads(d["reasons_json"])
+        except Exception:
+            d["reasons"] = []
+        try:
+            d["graph"] = json.loads(d["graph_json"]) if d["graph_json"] else None
+        except Exception:
+            d["graph"] = None
+        d.pop("reasons_json", None)
+        d.pop("graph_json", None)
+        return d
+
+
+def delete_investigation(investigation_id: str, user_id: str) -> bool:
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM investigations WHERE id = ? AND user_id = ?",
+            (investigation_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0

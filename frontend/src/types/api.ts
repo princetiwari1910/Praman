@@ -30,6 +30,7 @@ export interface RiskResult {
   };
   generated_at: string;
   data_mode: 'live' | 'fixture';
+  data_note?: string;
 }
 
 export interface UsageResponse {
@@ -96,6 +97,25 @@ export interface ApprovalResponse {
   note?: string;
   decided_at?: string;
   timestamp?: string;
+}
+
+export interface SavedInvestigation {
+  id: string;
+  user_id: string;
+  address: string;
+  chain: string;
+  score: number;
+  band: string;
+  sanctions_hit: boolean;
+  data_mode: 'live' | 'fixture';
+  reasons: RiskReason[];
+  graph?: {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+  } | null;
+  report_sha256?: string | null;
+  notes?: string | null;
+  created_at: string;
 }
 
 export interface ApiErrorResponse {

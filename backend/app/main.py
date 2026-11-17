@@ -19,6 +19,7 @@ from app.dependencies import require_api_key
 from app.routers.risk import router as risk_router
 from app.routers.auth import router as auth_router
 from app.routers.demo import demo_router
+from app.routers.investigations import investigations_router
 from app.auth.db import init_db
 from app.auth.security import get_jwt_secret
 from app.engine.sanctions import info as sanctions_info
@@ -211,6 +212,7 @@ async def print_startup_info():
 
 app.include_router(auth_router)
 app.include_router(demo_router)
+app.include_router(investigations_router)
 app.include_router(risk_router, dependencies=[Depends(require_api_key)])
 
 

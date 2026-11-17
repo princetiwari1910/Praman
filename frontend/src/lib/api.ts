@@ -161,3 +161,63 @@ export async function apiGetMe() {
   }
   return res.json();
 }
+
+/**
+ * Investigations API helpers (for authenticated users)
+ */
+export async function apiSaveInvestigation(payload: {
+  address: string;
+  chain?: string;
+  score: number;
+  band: string;
+  sanctions_hit?: boolean;
+  data_mode?: string;
+  reasons?: any[];
+  graph?: any;
+  report_sha256?: string | null;
+  notes?: string | null;
+}) {
+  const res = await apiFetch('/v1/investigations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Failed to save investigation');
+  }
+  return res.json();
+}
+
+export async function apiListInvestigations(limit = 50) {
+  const res = await apiFetch(`/v1/investigations?limit=${limit}`, {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Failed to load investigations');
+  }
+  return res.json();
+}
+
+export async function apiGetInvestigation(id: string) {
+  const res = await apiFetch(`/v1/investigations/${id}`, {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Failed to load investigation');
+  }
+  return res.json();
+}
+
+export async function apiDeleteInvestigation(id: string) {
+  const res = await apiFetch(`/v1/investigations/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.detail?.message || data?.message || 'Failed to delete investigation');
+  }
+  return res.json();
+}

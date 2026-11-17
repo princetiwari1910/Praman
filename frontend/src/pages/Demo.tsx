@@ -10,6 +10,10 @@ import {
   Upload,
   ShieldCheck,
   RotateCcw,
+  Bookmark,
+  FolderOpen,
+  Trash2,
+  History as HistoryIcon,
 } from 'lucide-react';
 import { cleanWallet, defaultWallet } from '@/fixtures/cleanWallet';
 import { highRiskWallet } from '@/fixtures/highRiskWallet';
@@ -24,13 +28,22 @@ import type {
   VerifyReportResponse,
   ApprovalResponse,
   ApprovalDecision,
+  SavedInvestigation,
 } from '@/types/api';
 import { BRAND } from '@/constants/brand';
 import { Footer } from '@/components/Footer';
 import { DemoGraph } from '@/components/DemoGraph';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useAuth } from '@/context/AuthContext';
-import { API_BASE_URL as BASE, API_KEY, apiFetch, parseErrorMessage } from '@/lib/api';
+import {
+  API_BASE_URL as BASE,
+  API_KEY,
+  apiFetch,
+  parseErrorMessage,
+  apiSaveInvestigation,
+  apiListInvestigations,
+  apiDeleteInvestigation,
+} from '@/lib/api';
 
 const CHAIN = 'ethereum' as const;
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -45,6 +58,12 @@ function scoreColor(score: number): string {
   if (score >= 70) return '#E2554F';
   if (score >= 30) return '#F2A93B';
   return '#1D9C86';
+}
+
+function scoreBackground(score: number): string {
+  if (score >= 70) return 'rgba(226, 85, 79, 0.12)';
+  if (score >= 30) return 'rgba(242, 169, 59, 0.15)';
+  return 'rgba(29, 156, 134, 0.12)';
 }
 
 function bandBarColor(band: string): string {
@@ -220,7 +239,7 @@ function ReasonList({ reasons, score }: { reasons: RiskResult['reasons']; score:
 export function Demo() {
   const reduced = useReducedMotion();
   const { isAuthenticated, openAuthModal } = useAuth();
-  const [activeTab, setActiveTab] = useState<'single' | 'batch'>('single');
+  const [activeTab, setActiveTab] = useState<'single' | 'batch' | 'history'>('single');
 
   // Single wallet screening
   const [address, setAddress] = useState('');
@@ -230,6 +249,12 @@ export function Demo() {
   const [error, setError] = useState<string | null>(null);
   const [wakingUpBanner, setWakingUpBanner] = useState(false);
   const [isNetworkFallback, setIsNetworkFallback] = useState(false);
+
+  // Saved investigations
+  const [savedInvestigations, setSavedInvestigations] = useState<SavedInvestigation[]>([]);
+  const [savingInvestigation, setSavingInvestigation] = useState(false);
+  const [saveSuccessToast, setSaveSuccessToast] = useState(false);
+  const [sessionRestoredBanner, setSessionRestoredBanner] = useState(false);
 
   // Usage & Config
   const [checksUsed, setChecksUsed] = useState<number>(0);
@@ -308,6 +333,115 @@ export function Demo() {
       // Backend unreachable; retain local counter
     }
   }, []);
+
+  const loadInvestigations = useCallback(async () => {
+    if (!isAuthenticated) {
+      setSavedInvestigations([]);
+      return;
+    }
+    try {
+      const data = await apiListInvestigations();
+      setSavedInvestigations(data.investigations || []);
+    } catch {
+      // Ignore if unauthenticated or offline
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    loadInvestigations();
+  }, [loadInvestigations]);
+
+  // Preserve active screening in sessionStorage
+  useEffect(() => {
+    if (result) {
+      try {
+        sessionStorage.setItem(
+          'tathya_active_screening',
+          JSON.stringify({
+            result,
+            address,
+            reportSha256,
+          })
+        );
+      } catch {}
+    }
+  }, [result, address, reportSha256]);
+
+  // Restore active screening on mount
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('tathya_active_screening');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.result && parsed?.address) {
+          setResult(parsed.result);
+          setAddress(parsed.address);
+          if (parsed.reportSha256) setReportSha256(parsed.reportSha256);
+          setSessionRestoredBanner(true);
+        }
+      }
+    } catch {}
+  }, []);
+
+  async function handleSaveInvestigation(customNotes?: string) {
+    if (!result) return;
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
+
+    setSavingInvestigation(true);
+    try {
+      await apiSaveInvestigation({
+        address: result.address,
+        chain: result.chain,
+        score: result.score,
+        band: result.band,
+        sanctions_hit: result.sanctions_hit,
+        data_mode: result.data_mode,
+        reasons: result.reasons,
+        graph: result.graph,
+        report_sha256: reportSha256,
+        notes: customNotes || undefined,
+      });
+      setSaveSuccessToast(true);
+      setTimeout(() => setSaveSuccessToast(false), 4000);
+      loadInvestigations();
+    } catch (err: any) {
+      setError(err.message || 'Failed to save investigation');
+    } finally {
+      setSavingInvestigation(false);
+    }
+  }
+
+  function handleReopenInvestigation(inv: SavedInvestigation) {
+    setAddress(inv.address);
+    setResult({
+      address: inv.address,
+      chain: inv.chain,
+      score: inv.score,
+      band: inv.band,
+      sanctions_hit: inv.sanctions_hit,
+      reasons: inv.reasons,
+      graph: inv.graph || { nodes: [], edges: [] },
+      generated_at: inv.created_at,
+      data_mode: inv.data_mode,
+      data_note: inv.notes || undefined,
+    });
+    setReportSha256(inv.report_sha256 || null);
+    setIsNetworkFallback(false);
+    setActiveTab('single');
+    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+  }
+
+  async function handleDeleteInvestigation(id: string) {
+    try {
+      await apiDeleteInvestigation(id);
+      setSavedInvestigations(prev => prev.filter(item => item.id !== id));
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete investigation');
+    }
+  }
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -1256,6 +1390,32 @@ export function Demo() {
             >
               Batch CSV
             </button>
+            {isAuthenticated && (
+              <button
+                id="tab-history"
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'history'}
+                aria-controls="panel-history"
+                tabIndex={activeTab === 'history' ? 0 : -1}
+                onClick={() => setActiveTab('history')}
+                className="px-4 py-2 min-h-[44px] rounded-lg text-sm font-semibold transition-colors duration-150 inline-flex items-center gap-2 cursor-pointer"
+                style={{
+                  background: activeTab === 'history' ? '#17144F' : 'transparent',
+                  color: activeTab === 'history' ? '#EDF0F7' : '#5B6178',
+                  border: 'none',
+                  fontFamily: 'Syne Variable, Syne, sans-serif',
+                }}
+              >
+                <HistoryIcon size={14} />
+                <span>My investigations</span>
+                {savedInvestigations.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-[#F2A93B] text-[#17144F] font-bold">
+                    {savedInvestigations.length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* ── WALLET CHECK TAB ───────────────────────────────────────────── */}
@@ -1432,6 +1592,42 @@ export function Demo() {
 
               {result && (
                 <div className="space-y-6">
+                  {sessionRestoredBanner && (
+                    <div
+                      className="rounded-xl p-4 text-xs flex flex-wrap items-center justify-between gap-3 border shadow-sm"
+                      style={{
+                        background: 'rgba(29, 156, 134, 0.08)',
+                        borderColor: 'rgba(29, 156, 134, 0.3)',
+                        color: '#147564',
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={16} className="text-[#1D9C86] shrink-0" />
+                        <span>
+                          <strong>Prior screening restored:</strong> Your active investigation for <code className="font-mono">{result.address}</code> was preserved during sign-in without resetting your session.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveInvestigation()}
+                          disabled={savingInvestigation}
+                          className="px-3 py-1 rounded text-xs font-semibold cursor-pointer"
+                          style={{ background: '#1D9C86', color: '#fff' }}
+                        >
+                          {savingInvestigation ? 'Saving…' : 'Save to account'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSessionRestoredBanner(false)}
+                          className="text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* ── 4 NUMBERED NAVIGATION CHIPS ─────────────────── */}
                   <nav aria-label="Demo sections" className="flex flex-wrap items-center gap-2">
                     {[
@@ -1531,6 +1727,26 @@ export function Demo() {
                             Audit entries:
                           </span>
                           <span>{auditResult ? `${auditResult.entries} entries` : '—'}</span>
+                        </div>
+
+                        <div className="ml-auto flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveInvestigation()}
+                            disabled={savingInvestigation}
+                            className="px-3 py-1.5 min-h-[32px] rounded border inline-flex items-center gap-1.5 text-xs font-semibold transition-colors"
+                            style={{
+                              borderColor: '#F2A93B',
+                              background: '#F2A93B',
+                              color: '#17144F',
+                              cursor: savingInvestigation ? 'not-allowed' : 'pointer',
+                              fontFamily: 'Syne Variable, Syne, sans-serif',
+                            }}
+                            aria-label="Save investigation to your account"
+                          >
+                            <Bookmark size={13} aria-hidden="true" />
+                            <span>{savingInvestigation ? 'Saving…' : saveSuccessToast ? 'Saved ✓' : 'Save investigation'}</span>
+                          </button>
                         </div>
                       </div>
                     );
@@ -2490,6 +2706,160 @@ export function Demo() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── SAVED INVESTIGATIONS TAB ────────────────────────────────────── */}
+          {activeTab === 'history' && isAuthenticated && (
+            <div id="panel-history" role="tabpanel" aria-labelledby="tab-history" className="space-y-6">
+              <div
+                className="rounded-xl p-6 sm:p-7 border shadow-sm"
+                style={{
+                  background: '#fff',
+                  borderColor: 'rgba(23,20,79,0.08)',
+                }}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'rgba(23,20,79,0.08)' }}>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold" style={{ color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}>
+                      My Saved Investigations
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                      Private, isolated risk reports stored securely in your TATHYA account.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('single')}
+                      className="px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer"
+                      style={{
+                        background: '#17144F',
+                        color: '#EDF0F7',
+                        fontFamily: 'Syne Variable, Syne, sans-serif',
+                      }}
+                    >
+                      Screen new wallet
+                    </button>
+                  </div>
+                </div>
+
+                {savedInvestigations.length === 0 ? (
+                  <div className="py-16 text-center">
+                    <HistoryIcon size={36} className="mx-auto text-slate-300 mb-3" />
+                    <p className="text-sm font-semibold text-slate-700">No saved investigations yet</p>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-5">
+                      Screen any wallet address and click "Save investigation" to store the complete evidence graph and report.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('single')}
+                      className="px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer"
+                      style={{ background: '#F2A93B', color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                    >
+                      Screen a wallet now
+                    </button>
+                  </div>
+                ) : (
+                  <div className="divide-y" style={{ borderColor: 'rgba(23,20,79,0.06)' }}>
+                    {savedInvestigations.map(inv => (
+                      <div key={inv.id} className="py-4.5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 -mx-4 px-4 rounded-lg transition-colors">
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            <span className="font-mono text-sm font-bold text-slate-900 truncate">
+                              {inv.address}
+                            </span>
+                            <span
+                              className="px-2 py-0.5 rounded text-[11px] font-mono font-bold"
+                              style={{
+                                background: scoreBackground(inv.score),
+                                color: scoreColor(inv.score),
+                              }}
+                            >
+                              Score: {inv.score} ({inv.band.toUpperCase()})
+                            </span>
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-mono uppercase"
+                              style={{
+                                background: inv.data_mode === 'live' ? 'rgba(29,156,134,0.1)' : 'rgba(242,169,59,0.15)',
+                                color: inv.data_mode === 'live' ? '#147564' : '#8C5808',
+                              }}
+                            >
+                              {inv.data_mode === 'live' ? 'Live data' : 'Demo data'}
+                            </span>
+                            {inv.sanctions_hit && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-red-100 text-red-700">
+                                Sanctions hit
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-mono">
+                            <span>Saved: {new Date(inv.created_at).toLocaleString()}</span>
+                            <span>Reasons: {inv.reasons?.length ?? 0}</span>
+                            {inv.report_sha256 && (
+                              <span title={inv.report_sha256}>
+                                Hash: {inv.report_sha256.slice(0, 10)}…
+                              </span>
+                            )}
+                          </div>
+
+                          {inv.notes && (
+                            <p className="text-xs text-slate-600 bg-slate-100/70 rounded px-2.5 py-1 inline-block">
+                              Note: {inv.notes}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleReopenInvestigation(inv)}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors border cursor-pointer"
+                            style={{
+                              borderColor: 'rgba(23,20,79,0.2)',
+                              color: '#17144F',
+                              background: '#fff',
+                            }}
+                          >
+                            <FolderOpen size={13} />
+                            <span>Reopen</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              handleReopenInvestigation(inv);
+                              setTimeout(() => handleDownloadReport(), 200);
+                            }}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                            style={{
+                              background: '#17144F',
+                              color: '#EDF0F7',
+                            }}
+                          >
+                            <Download size={13} />
+                            <span>PDF</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Delete saved investigation for ${inv.address.slice(0, 10)}…?`)) {
+                                handleDeleteInvestigation(inv.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Delete investigation"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
