@@ -18,7 +18,9 @@ from app.state import usage, reports, reset
 from app.dependencies import require_api_key
 from app.routers.risk import router as risk_router
 from app.routers.auth import router as auth_router
+from app.routers.demo import demo_router
 from app.auth.db import init_db
+from app.auth.security import get_jwt_secret
 from app.engine.sanctions import info as sanctions_info
 
 
@@ -50,6 +52,9 @@ config = load_config()
 async def lifespan(app: FastAPI):
     # Initialize Auth DB
     init_db()
+
+    # Validate production security prerequisites (fails safely on start if insecure)
+    get_jwt_secret()
 
     # Mode
     use_live = os.getenv("USE_FIXTURES", "false").lower() == "false"
@@ -205,6 +210,7 @@ async def print_startup_info():
 # ============================================================
 
 app.include_router(auth_router)
+app.include_router(demo_router)
 app.include_router(risk_router, dependencies=[Depends(require_api_key)])
 
 

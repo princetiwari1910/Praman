@@ -44,6 +44,40 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);")
         conn.commit()
 
+        # Idempotent migration from legacy praman.db if it exists
+        if LEGACY_DB_PATH.exists():
+            try:
+                legacy_conn = sqlite3.connect(str(LEGACY_DB_PATH))
+                legacy_conn.row_factory = sqlite3.Row
+                cursor = legacy_conn.execute("SELECT * FROM users")
+                legacy_users = cursor.fetchall()
+                for u in legacy_users:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO users (
+                            id, email, password_hash, password_salt, full_name,
+                            avatar_url, auth_provider, google_id, created_at, last_login_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            u["id"],
+                            u["email"],
+                            u["password_hash"],
+                            u["password_salt"],
+                            u["full_name"],
+                            u["avatar_url"],
+                            u["auth_provider"],
+                            u["google_id"],
+                            u["created_at"],
+                            u["last_login_at"],
+                        ),
+                    )
+                conn.commit()
+                legacy_conn.close()
+            except Exception:
+                # If legacy DB has different schema or cannot be read, ignore without breaking
+                pass
+
 
 def get_user_by_email(email: str) -> dict[str, Any] | None:
     with get_db_connection() as conn:

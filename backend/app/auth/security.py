@@ -10,8 +10,42 @@ import time
 from typing import Any
 import httpx
 
-JWT_SECRET = os.getenv("JWT_SECRET", "tathya-secret-key-change-in-production-2026")
+DEFAULT_DEV_SECRET = "tathya-secret-key-change-in-production-2026"
 JWT_ALGORITHM = "HS256"
+
+
+def get_jwt_secret() -> str:
+    """Retrieve and validate the JWT secret.
+    In production (ENVIRONMENT=production, RENDER=true, or RENDER_SERVICE_ID set),
+    strictly enforces that JWT_SECRET is configured, not default, and at least 32 characters.
+    In development and testing, falls back safely to DEFAULT_DEV_SECRET.
+    """
+    secret = os.getenv("JWT_SECRET", "").strip()
+    is_prod = (
+        os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+        or os.getenv("RENDER", "").lower() == "true"
+        or bool(os.getenv("RENDER_SERVICE_ID"))
+    )
+
+    if is_prod:
+        if not secret or secret in (
+            DEFAULT_DEV_SECRET,
+            "praman-secret-key-change-in-production-2026",
+            "secret",
+            "changeme",
+        ):
+            raise RuntimeError(
+                "CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET environment variable "
+                "must be explicitly set to a strong secret in production. "
+                "Default, missing, or trivial secrets are strictly rejected."
+            )
+        if len(secret) < 32:
+            raise RuntimeError(
+                "CRITICAL SECURITY CONFIGURATION ERROR: Production JWT_SECRET must be at least 32 characters long."
+            )
+        return secret
+
+    return secret if secret else DEFAULT_DEV_SECRET
 
 
 def hash_password(password: str) -> tuple[str, str]:
@@ -56,7 +90,8 @@ def create_access_token(user_id: str, email: str, expires_in_seconds: int = 8640
     segment2 = _b64encode(payload_bytes)
 
     signing_input = f"{segment1}.{segment2}".encode("utf-8")
-    sig = hmac.new(JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    secret = get_jwt_secret()
+    sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
     segment3 = _b64encode(sig)
 
     return f"{segment1}.{segment2}.{segment3}"
@@ -71,7 +106,8 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
     segment1, segment2, segment3 = parts
     signing_input = f"{segment1}.{segment2}".encode("utf-8")
 
-    expected_sig = hmac.new(JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    secret = get_jwt_secret()
+    expected_sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
     actual_sig = _b64decode(segment3)
 
     if not secrets.compare_digest(expected_sig, actual_sig):

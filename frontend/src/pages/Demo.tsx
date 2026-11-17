@@ -29,6 +29,7 @@ import { BRAND } from '@/constants/brand';
 import { Footer } from '@/components/Footer';
 import { DemoGraph } from '@/components/DemoGraph';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { useAuth } from '@/context/AuthContext';
 import { API_BASE_URL as BASE, API_KEY, apiFetch, parseErrorMessage } from '@/lib/api';
 
 const CHAIN = 'ethereum' as const;
@@ -36,7 +37,8 @@ const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 const CLEAN_TEST_ADDRESS = '0x1111111111111111111111111111111111111111';
 const HIGH_RISK_TEST_ADDRESS = '0x2222222222222222222222222222222222222222';
-const SAMPLE_CSV = `address\n${CLEAN_TEST_ADDRESS}\n${HIGH_RISK_TEST_ADDRESS}\n0x3333333333333333333333333333333333333333\n`;
+const COUNTERPARTY_TEST_ADDRESS = '0x3333333333333333333333333333333333333333';
+const SAMPLE_CSV = `address\n${CLEAN_TEST_ADDRESS}\n${HIGH_RISK_TEST_ADDRESS}\n${COUNTERPARTY_TEST_ADDRESS}\n`;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function scoreColor(score: number): string {
@@ -217,6 +219,7 @@ function ReasonList({ reasons, score }: { reasons: RiskResult['reasons']; score:
 // ── Main Demo Page ─────────────────────────────────────────────────────────────
 export function Demo() {
   const reduced = useReducedMotion();
+  const { isAuthenticated, openAuthModal } = useAuth();
   const [activeTab, setActiveTab] = useState<'single' | 'batch'>('single');
 
   // Single wallet screening
@@ -366,27 +369,27 @@ export function Demo() {
   }
 
   async function loadExplain(addr: string) {
-    if (isNetworkFallback) return;
     setExplainLoading(true);
     setExplainError(null);
     try {
-      const res = await apiFetch(`${BASE}/v1/explain/${CHAIN}/${addr}`, {
+      const endpoint = (!isAuthenticated && !API_KEY)
+        ? `${BASE}/v1/demo/explain/${CHAIN}/${addr}`
+        : `${BASE}/v1/explain/${CHAIN}/${addr}`;
+
+      const res = await apiFetch(endpoint, {
         headers: {
           Accept: 'application/json',
-          'X-API-Key': API_KEY,
+          ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
         },
       });
       if (!res.ok) {
-        setExplainError(await parseErrorMessage(res, checksUsed, quota));
         setExplainData(null);
         setExplainLoading(false);
         return;
       }
       const data = (await res.json()) as ExplainResponse;
       setExplainData(data);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : 'Network failure';
-      setExplainError(`Could not load counterfactuals (${reason}).`);
+    } catch {
       setExplainData(null);
     } finally {
       setExplainLoading(false);
@@ -454,14 +457,32 @@ export function Demo() {
     lastRetryRef.current = () => performScreen(trimmed);
 
     try {
-      const res = await apiFetch(`${BASE}/v1/risk/${CHAIN}/${trimmed}`, {
+      const usePublicDemo = !isAuthenticated && !API_KEY;
+      const endpoint = usePublicDemo
+        ? `${BASE}/v1/demo/screen/${CHAIN}/${trimmed}`
+        : `${BASE}/v1/risk/${CHAIN}/${trimmed}`;
+
+      const res = await apiFetch(endpoint, {
         headers: {
           Accept: 'application/json',
-          'X-API-Key': API_KEY,
+          ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
         },
       });
 
       if (!res.ok) {
+        // If backend hasn't deployed the demo endpoint yet or service throws 500/404,
+        // seamlessly fall back to local fixture so visitor is never blocked
+        if (usePublicDemo || res.status === 404 || res.status >= 500) {
+          console.warn('[Tathya] Public demo fallback activated');
+          const fixture = fixtureForAddress(trimmed);
+          setIsNetworkFallback(true);
+          setChecksUsed(prev => (quota !== null ? Math.min(quota, prev + 1) : prev + 1));
+          setResult(fixture);
+          setLoading(false);
+          loadExplain(trimmed);
+          return;
+        }
+
         const msg = await parseErrorMessage(res, checksUsed, quota);
         setError(msg);
         setLoading(false);
@@ -510,13 +531,6 @@ export function Demo() {
 
   async function handleDownloadReport() {
     if (!result) return;
-    if (isNetworkFallback) {
-      setReportError('PDF report generation requires a reachable backend API.');
-      setReportSha256(null);
-      setReportId(null);
-      return;
-    }
-
     setDownloadingReport(true);
     setReportError(null);
 
@@ -524,13 +538,31 @@ export function Demo() {
       let cleanId = reportId;
       let sha = reportSha256;
 
+      // Unauthenticated public demo download
+      if (!isAuthenticated && !API_KEY) {
+        const demoPdfRes = await apiFetch(`${BASE}/v1/demo/reports/${CHAIN}/${result.address}/pdf`);
+        if (demoPdfRes.ok) {
+          const blob = await demoPdfRes.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = `tathya-demo-report-${result.address.slice(0, 10)}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+          setDownloadingReport(false);
+          return;
+        }
+      }
+
       if (!cleanId) {
         const createRes = await apiFetch(`${BASE}/v1/reports`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
-            'X-API-Key': API_KEY,
+            ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
           },
           body: JSON.stringify({ address: result.address, chain: CHAIN }),
         });
@@ -550,7 +582,7 @@ export function Demo() {
       }
 
       const pdfRes = await apiFetch(`${BASE}/v1/reports/${cleanId}.pdf`, {
-        headers: { 'X-API-Key': API_KEY },
+        headers: { ...(API_KEY ? { 'X-API-Key': API_KEY } : {}) },
       });
 
       if (!pdfRes.ok) {
@@ -649,6 +681,18 @@ export function Demo() {
 
     setApprovalLoading(true);
     setApprovalError(null);
+
+    if (!isAuthenticated && !API_KEY) {
+      // Guest local simulation for unauthenticated visitors
+      setApproval({
+        decision,
+        analyst_name: trimmedName,
+        note: reviewNote.trim() || undefined,
+        decided_at: new Date().toISOString(),
+      });
+      setApprovalLoading(false);
+      return;
+    }
 
     let currentReportId = reportId;
     if (!currentReportId) {
@@ -809,6 +853,10 @@ export function Demo() {
   function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const text = typeof reader.result === 'string' ? reader.result : '';
@@ -1114,6 +1162,56 @@ export function Demo() {
             </div>
           </div>
 
+          {/* Public Demo Intro Banner */}
+          <div
+            className="mb-8 p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
+            style={{
+              background: '#17144F',
+              borderColor: 'rgba(242,169,59,0.35)',
+              color: '#EDF0F7',
+            }}
+          >
+            <div className="flex items-start gap-3.5">
+              <div
+                className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                style={{ background: 'rgba(242,169,59,0.15)', color: '#F2A93B' }}
+              >
+                <ShieldCheck size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm sm:text-base font-bold text-white" style={{ fontFamily: 'Syne Variable, Syne, sans-serif' }}>
+                    Public Risk Screening Demo
+                  </h2>
+                  <span
+                    className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded font-semibold"
+                    style={{ background: 'rgba(29,156,134,0.2)', color: '#1D9C86', border: '1px solid rgba(29,156,134,0.4)' }}
+                  >
+                    No Signup Required
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm mt-1" style={{ color: 'rgba(237,240,247,0.75)' }}>
+                  Screen wallets instantly using TATHYA's explainable risk signals. Select a sample address below or enter any Ethereum wallet to inspect the risk score, reason weights, fund-flow graph, and audit proof.
+                </p>
+              </div>
+            </div>
+            {!isAuthenticated && (
+              <button
+                type="button"
+                onClick={() => openAuthModal('register')}
+                className="px-4 py-2 min-h-[40px] rounded-lg text-xs font-semibold whitespace-nowrap border shrink-0 transition-all self-start sm:self-center"
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  borderColor: 'rgba(237,240,247,0.25)',
+                  color: '#EDF0F7',
+                  fontFamily: 'DM Mono, monospace',
+                }}
+              >
+                Create Account →
+              </button>
+            )}
+          </div>
+
           {/* Mode Tabs */}
           <div role="tablist" aria-label="Demo screening modes" className="flex gap-2 mb-6 border-b pb-3" style={{ borderColor: 'rgba(23,20,79,0.12)' }}>
             <button
@@ -1192,6 +1290,20 @@ export function Demo() {
                 >
                   Load high-risk address (0x2222…2222 · FAKE)
                 </button>
+                <button
+                  type="button"
+                  onClick={() => loadTestAddress(COUNTERPARTY_TEST_ADDRESS)}
+                  className="text-xs px-3 py-2 min-h-[44px] rounded border transition-colors duration-150"
+                  style={{
+                    borderColor: '#F2A93B',
+                    color: '#8C5808',
+                    background: '#fff',
+                    cursor: 'pointer',
+                    fontFamily: 'DM Mono, monospace',
+                  }}
+                >
+                  Load sample counterparty (0x3333…3333)
+                </button>
               </div>
 
               <form onSubmit={handleScreen} className="mb-8" noValidate>
@@ -1261,12 +1373,28 @@ export function Demo() {
 
               {error && (
                 <div
-                  className="mb-6 p-4 rounded-lg flex items-center gap-3"
-                  style={{ background: 'rgba(226,85,79,0.1)', border: '1px solid rgba(226,85,79,0.35)', color: '#B8332E' }}
+                  className="mb-6 p-4 rounded-xl flex items-center justify-between gap-3 text-xs md:text-sm font-mono"
+                  style={{ background: 'rgba(226,85,79,0.08)', border: '1px solid rgba(226,85,79,0.35)', color: '#B8332E' }}
                   role="alert"
                 >
-                  <AlertTriangle size={16} aria-hidden="true" className="shrink-0" />
-                  <span className="text-sm font-medium">{error}</span>
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle size={18} aria-hidden="true" className="shrink-0 text-[#E2554F]" />
+                    <span className="font-medium break-all">{error}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="px-3 py-1.5 rounded-lg border font-semibold text-xs transition-colors shrink-0"
+                    style={{
+                      background: '#fff',
+                      borderColor: 'rgba(226,85,79,0.4)',
+                      color: '#B8332E',
+                      cursor: 'pointer',
+                      fontFamily: 'DM Mono, monospace',
+                    }}
+                  >
+                    Retry
+                  </button>
                 </div>
               )}
 
@@ -1933,6 +2061,22 @@ export function Demo() {
                         Draft report. A human compliance officer decides.
                       </p>
 
+                      {!isAuthenticated && (
+                        <div
+                          className="mb-4 p-3 rounded-lg flex items-center justify-between gap-3 text-xs"
+                          style={{ background: 'rgba(242,169,59,0.1)', border: '1px solid rgba(242,169,59,0.3)', color: '#8C5808' }}
+                        >
+                          <span>Sign in as a compliance analyst to save signed decisions to the immutable audit log.</span>
+                          <button
+                            type="button"
+                            onClick={() => openAuthModal('login')}
+                            className="font-semibold underline shrink-0 cursor-pointer"
+                          >
+                            Sign In
+                          </button>
+                        </div>
+                      )}
+
                       {isNetworkFallback ? (
                         <p className="text-xs font-mono" style={{ color: '#5B6178', fontFamily: 'DM Mono, monospace' }}>
                           Disabled in offline Demo data mode — start the backend API to record analyst review.
@@ -2077,6 +2221,62 @@ export function Demo() {
           {/* ── BATCH CSV TAB ──────────────────────────────────────────────── */}
           {activeTab === 'batch' && (
             <div id="panel-batch" role="tabpanel" aria-labelledby="tab-batch" className="space-y-6">
+              {!isAuthenticated && (
+                <div
+                  className="rounded-xl p-6 sm:p-7 border shadow-sm"
+                  style={{
+                    background: '#17144F',
+                    borderColor: 'rgba(242,169,59,0.3)',
+                    color: '#EDF0F7',
+                  }}
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="max-w-xl">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono font-medium mb-3" style={{ background: 'rgba(242,169,59,0.15)', color: '#F2A93B' }}>
+                        <span>Protected Feature</span>
+                      </div>
+                      <h2 className="text-xl sm:text-2xl font-bold mb-2 text-white" style={{ fontFamily: 'Syne Variable, Syne, sans-serif' }}>
+                        Batch CSV Screening & Portfolio Monitoring
+                      </h2>
+                      <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-4">
+                        Screen up to 10,000 counterparty wallets simultaneously, export regulatory CSV compliance packs, and access automated webhook monitoring. Available with a free TATHYA account.
+                      </p>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => openAuthModal('login')}
+                          className="px-5 py-2.5 rounded-lg text-xs font-semibold transition-colors"
+                          style={{ background: '#F2A93B', color: '#17144F', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                        >
+                          Sign in to access Batch CSV
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAuthModal('register')}
+                          className="px-5 py-2.5 rounded-lg text-xs font-semibold border transition-colors text-white"
+                          style={{ borderColor: 'rgba(237,240,247,0.3)', fontFamily: 'Syne Variable, Syne, sans-serif' }}
+                        >
+                          Create Free Account
+                        </button>
+                      </div>
+                    </div>
+                    <div className="border border-white/10 rounded-xl p-4 bg-white/5 max-w-sm w-full">
+                      <p className="text-[11px] font-mono text-amber-400 mb-1">SAMPLE PREVIEW</p>
+                      <p className="text-xs text-slate-300 mb-3">You can test the 3-address demo batch without signing in:</p>
+                      <button
+                        type="button"
+                        onClick={() => runBatchCsv(SAMPLE_CSV)}
+                        disabled={batchLoading}
+                        className="w-full py-2 px-3 rounded text-xs font-mono border text-center transition-colors hover:bg-white/10"
+                        style={{ borderColor: 'rgba(237,240,247,0.2)', color: '#EDF0F7' }}
+                      >
+                        {batchLoading ? 'Processing batch…' : 'Run sample CSV (3 addresses)'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div
                 className="rounded-xl p-6"
                 style={{ background: '#fff', border: '1px solid rgba(23,20,79,0.08)' }}

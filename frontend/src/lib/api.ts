@@ -105,6 +105,8 @@ export async function parseErrorMessage(
   if (res.status === 401) return `API key missing or wrong — ${apiText}`;
   if (res.status === 422) return `Validation error — ${apiText}`;
   if (res.status === 429) return `Quota reached (${checksUsed}${quota !== null ? ` / ${quota}` : ''}) — ${apiText}`;
+  if (res.status === 500) return `Server processing error (500) — ${apiText}. Ensure backend is running latest deployment.`;
+  if (res.status === 502 || res.status === 503 || res.status === 504) return `Service unavailable (${res.status}) — Backend service is spinning up. Please retry in a few moments.`;
   return apiText;
 }
 

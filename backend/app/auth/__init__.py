@@ -12,6 +12,7 @@ from app.auth.security import (
     create_access_token,
     decode_access_token,
     verify_google_id_token,
+    get_jwt_secret,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "create_access_token",
     "decode_access_token",
     "verify_google_id_token",
+    "get_jwt_secret",
 ]

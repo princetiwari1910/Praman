@@ -308,7 +308,7 @@ export function Hero() {
                 onClick={() => navigate('/demo')}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
-                className="px-8 py-4 rounded-lg font-semibold text-base transition-colors duration-150"
+                className="px-8 py-4 rounded-lg font-semibold text-base transition-colors duration-150 shadow-lg shadow-amber-500/10 focus:outline-none focus:ring-2 focus:ring-[#F2A93B] focus:ring-offset-2 focus:ring-offset-[#17144F]"
                 style={{
                   background: '#F2A93B',
                   color: '#17144F',
@@ -318,11 +318,11 @@ export function Hero() {
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#f0b34e'; }}
               >
-                {BRAND.demoCtaLabel}
+                Try Live Demo
               </button>
               <a
-                href={`mailto:${BRAND.partnerEmail}`}
-                className="px-8 py-4 rounded-lg font-semibold text-base border transition-colors duration-150"
+                href="#developer"
+                className="px-8 py-4 rounded-lg font-semibold text-base border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#17144F] inline-flex items-center justify-center"
                 style={{
                   borderColor: 'rgba(237,240,247,0.3)',
                   color: '#EDF0F7',
@@ -331,8 +331,14 @@ export function Hero() {
                 onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = '#EDF0F7'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(237,240,247,0.3)'; }}
               >
-                {BRAND.partnerCtaLabel}
+                Explore API
               </a>
+            </div>
+
+            {/* Instant access note */}
+            <div className="flex items-center gap-2 mt-4 text-xs font-mono" style={{ color: 'rgba(237,240,247,0.65)' }}>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 inline-block" />
+              <span>Public demo available immediately — no signup required</span>
             </div>
 
             {/* Reason chips */}

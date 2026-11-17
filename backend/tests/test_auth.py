@@ -62,3 +62,23 @@ def test_register_and_login_flow():
     # 6. Access /v1/auth/me without token fails
     no_auth_resp = client.get("/v1/auth/me")
     assert no_auth_resp.status_code == 401
+
+
+def test_production_jwt_secret_validation(monkeypatch):
+    from app.auth.security import get_jwt_secret
+
+    # When in production with no secret set, it must fail safely
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    with pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"):
+        get_jwt_secret()
+
+    # When in production with a weak secret (< 32 chars), it must fail safely
+    monkeypatch.setenv("JWT_SECRET", "short_secret")
+    with pytest.raises(RuntimeError, match="at least 32 characters"):
+        get_jwt_secret()
+
+    # When in production with a strong secret (>= 32 chars), it must succeed
+    strong_secret = "a_super_strong_production_secret_key_1234567890"
+    monkeypatch.setenv("JWT_SECRET", strong_secret)
+    assert get_jwt_secret() == strong_secret
