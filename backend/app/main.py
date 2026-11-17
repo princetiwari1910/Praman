@@ -159,9 +159,10 @@ def generic_exception_handler(request: Request, exc: Exception):
     logging.getLogger(__name__).exception(
         "Internal server error (request_id: %s)", request_id
     )
+    err_msg = str(exc) if str(exc) else "Unexpected server error"
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": "internal_error", "message": "Unexpected server error"},
+        content={"error": "internal_error", "message": err_msg},
         media_type="application/json",
     )
 
