@@ -84,7 +84,7 @@ export function Footer() {
               {BRAND.partnerEmail}
             </a>
             <p className="text-xs mt-6 leading-relaxed" style={{ color: 'rgba(237,240,247,0.65)' }}>
-              Bengaluru, India · Remote-first
+              Delhi, India · Remote-first
             </p>
           </div>
         </div>

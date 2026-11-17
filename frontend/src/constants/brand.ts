@@ -4,7 +4,7 @@ export const BRAND = {
   category: 'Financial Risk Intelligence',
   tagline: 'Facts Behind Every Risk.',
   description: 'Explainable risk screening for crypto and fintech.',
-  partnerEmail: 'design-partners@example.com',
+  partnerEmail: 'mail.tathya@gmail.com',
   demoCtaLabel: 'Try the live demo',
   partnerCtaLabel: 'Become a design partner',
 } as const;
