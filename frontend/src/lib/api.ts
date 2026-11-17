@@ -47,7 +47,7 @@ export function apiUrl(endpoint: string): string {
 export async function apiFetch(
   pathOrUrl: string,
   options: RequestInit = {},
-  timeoutMs = 10_000
+  timeoutMs = 45_000
 ): Promise<Response> {
   const url = apiUrl(pathOrUrl);
   const apiKey = getApiKey();
@@ -71,6 +71,11 @@ export async function apiFetch(
       headers,
       signal: controller.signal,
     });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Server took too long to respond (Render free-tier cold start). Please try again in a moment.');
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }

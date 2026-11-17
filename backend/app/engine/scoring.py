@@ -208,21 +208,15 @@ def evaluate_wallet(
     )
 
     wallet_data: dict
+    data_note: str | None = None
     if use_live:
         try:
             wallet_data = live.fetch_wallet(address)
         except live.LiveError as e:
             # Fall back to fixture data
-            fallback = _fixture_data_for_address(address)
-            return {
-                **fallback,
-                "score": fallback["score"],
-                "band": fallback["band"],
-                "reasons": fallback["reasons"],
-                "sanctions_hit": fallback.get("sanctions_hit", False),
-                "data_mode": "fixture",
-                "data_note": f"Live lookup failed ({e.code}); showing fixture data.",
-            }
+            wallet_data = _fixture_data_for_address(address)
+            data_note = f"Live lookup failed ({e.code}); showing fixture data."
+            use_live = False
     else:
         # Use fixture data
         wallet_data = _fixture_data_for_address(address)
@@ -235,6 +229,8 @@ def evaluate_wallet(
     result["data_mode"] = "live" if use_live else "fixture"
     result["address"] = address
     result["sanctions_hit"] = sanctioned
+    if data_note:
+        result["data_note"] = data_note
 
     # Build graph data
     result = _build_graph(result, wallet_data, sanctioned)

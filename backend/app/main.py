@@ -70,9 +70,9 @@ default_cors_origins = [
     "https://praman.princetiwari.tech",
     "https://praman-kljk.onrender.com",
 ]
-cors_origins_env = os.getenv("CORS_ORIGINS", "")
-parsed_origins = [o.strip().rstrip("/") for o in cors_origins_env.split(",") if o.strip()]
-allow_origins = parsed_origins if parsed_origins else default_cors_origins
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+extra_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+allow_origins = default_cors_origins + extra_origins
 
 app.add_middleware(
     CORSMiddleware,

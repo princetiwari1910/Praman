@@ -7,7 +7,8 @@ import re
 import json
 import time
 from datetime import datetime, timezone
-from fastapi import APIRouter, Path, HTTPException, status, Depends, Request
+from pathlib import Path as _Path
+from fastapi import APIRouter, Path as _FastAPIPath, HTTPException, status, Depends, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.dependencies import require_api_key
@@ -49,8 +50,8 @@ def _get_quota() -> int:
 
 @router.get("/risk/{chain}/{address}")
 async def risk_get(
-    chain: str = Path(..., description="Blockchain name"),
-    address: str = Path(..., description="Wallet address"),
+    chain: str = _FastAPIPath(..., description="Blockchain name"),
+    address: str = _FastAPIPath(..., description="Wallet address"),
     api_key: str = Depends(require_api_key),
 ):
     """Risk score for a crypto wallet."""
@@ -256,7 +257,12 @@ async def reports_post(
         "pdf_bytes": pdf_bytes,
         "data_mode": evaluation["data_mode"],
         "generated_at": generated_at,
+        "score": evaluation["score"],
+        "band": evaluation["band"],
+        "reasons": evaluation.get("reasons", []),
     }
+    # Write audit entry
+    _write_audit_entry(address, evaluation["score"])
     return JSONResponse(status_code=status.HTTP_201_CREATED, content={"report_id": report_id, "sha256": sha256})
 
 
@@ -357,6 +363,70 @@ def _build_report_pdf(address: str, evaluation: dict, generated_at: str) -> byte
     return buf.getvalue()
 
 
+@router.get("/reports/{report_id}/summary")
+async def reports_summary_get(
+    report_id: str = _FastAPIPath(..., description="Report identifier"),
+    api_key: str = Depends(require_api_key),
+):
+    """Return a text summary of a stored report."""
+    address = None
+    score = None
+    band = None
+    data_mode = None
+    reasons = []
+    for addr, rpt in reports.items():
+        if rpt["report_id"] == report_id:
+            address = addr
+            score = rpt.get("score")
+            band = rpt.get("band")
+            data_mode = rpt.get("data_mode")
+            reasons = rpt.get("reasons", [])
+            break
+
+    if address is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "report_not_found", "message": "Report not found"},
+        )
+
+    # Headline: address, score and band; add "(sample data)" when data_mode is fixture
+    headline = f"Risk Report for {address} – Score: {score} ({band})"
+    if data_mode == "fixture":
+        headline += " (sample data)"
+
+    # Paragraphs: one per reason with its code, weight and detail
+    paragraphs = []
+    for r in reasons:
+        paragraphs.append(
+            {
+                "code": r["code"],
+                "weight": r["weight"],
+                "detail": r["detail"],
+            }
+        )
+
+    # Recommended steps by band
+    recommended_steps_map = {
+        "low": "Routine monitoring.",
+        "medium": "Manual review by an analyst.",
+        "high": "Enhanced due diligence by a compliance officer.",
+        "severe": "Escalate to the compliance officer; do not proceed until reviewed.",
+    }
+    recommended_steps = recommended_steps_map.get(band, "")
+
+    # Disclaimer
+    disclaimer = "Draft generated from rules over the data shown. A human compliance officer must review. Not legal advice."
+
+    return JSONResponse(content={
+        "report_id": report_id,
+        "data_mode": data_mode,
+        "headline": headline,
+        "paragraphs": paragraphs,
+        "recommended_steps": recommended_steps,
+        "disclaimer": disclaimer,
+    })
+
+
 @router.get("/reports/{report_id}/pdf")
 @router.get("/reports/{report_id}.pdf")
 async def reports_pdf_get(
@@ -439,8 +509,8 @@ async def feedback_post(request: Request):
 
 @router.get("/explain/{chain}/{address}")
 async def explain_get(
-    chain: str = Path(..., description="Blockchain name"),
-    address: str = Path(..., description="Wallet address"),
+    chain: str = _FastAPIPath(..., description="Blockchain name"),
+    address: str = _FastAPIPath(..., description="Wallet address"),
     api_key: str = Depends(require_api_key),
 ):
     """Explain risk for an address without consuming quota or writing audit.
@@ -479,6 +549,89 @@ async def explain_get(
         "data_mode": evaluation["data_mode"],
         "counterfactuals": counterfactuals,
     })
+
+
+def _write_audit_entry(address: str, score: int) -> None:
+    """Append an audit entry to the audit log file."""
+    from app.state import reports
+    project_root = _Path(__file__).resolve().parent.parent
+    audit_log = project_root / "audit" / "audit.log"
+    audit_log.parent.mkdir(parents=True, exist_ok=True)
+    entry_index = len(reports) + 1
+    ts = datetime.now(timezone.utc).isoformat()
+    prev_hash = ""
+    if audit_log.exists():
+        with open(audit_log) as f:
+            lines = f.readlines()
+            if lines:
+                last_line = lines[-1].strip()
+                if last_line:
+                    try:
+                        last_entry = json.loads(last_line)
+                        prev_hash = last_entry.get("entry_hash", "")
+                    except (json.JSONDecodeError, KeyError):
+                        prev_hash = ""
+    entry_hash = hashlib.sha256(
+        f"{entry_index}{ts}{address}{score}{prev_hash}".encode()
+    ).hexdigest()
+    entry = {
+        "index": entry_index,
+        "ts": ts,
+        "address": address,
+        "score": score,
+        "prev_hash": prev_hash,
+        "entry_hash": entry_hash,
+    }
+    with open(audit_log, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+@router.get("/audit/entries")
+async def audit_entries_get(
+    limit: int = 20,
+    api_key: str = Depends(require_api_key),
+) -> dict:
+    """Return audit log entries, newest first, with pagination."""
+    from app.state import reports
+
+    # Validate limit
+    if limit < 1 or limit > 100:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"error": "validation_error", "message": "Limit must be between 1 and 100"},
+        )
+
+    entries = []
+    total = 0
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    audit_log = os.path.join(base_dir, "audit", "audit.log")
+
+    if os.path.exists(audit_log):
+        with open(audit_log) as f:
+            lines = f.readlines()
+            total = len(lines)
+            # Read last `limit` entries, newest first (reverse order)
+            for line in lines[-limit:]:
+                line = line.strip()
+                if line:
+                    try:
+                        entry = json.loads(line)
+                        entry_data = {
+                            "index": entry.get("index"),
+                            "ts": entry.get("ts"),
+                            "address": entry.get("address"),
+                            "score": entry.get("score"),
+                            "prev_hash": entry.get("prev_hash"),
+                            "entry_hash": entry.get("entry_hash"),
+                        }
+                        entries.append(entry_data)
+                    except json.JSONDecodeError:
+                        continue
+
+    entries.reverse()
+
+    return {"entries": entries, "total": total}
 
 
 @router.get("/audit/verify")
